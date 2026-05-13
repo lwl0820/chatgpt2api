@@ -59,3 +59,14 @@
 - [x] 8.2 Record keep and discard decisions in history while preserving non-destructive image behavior.
 - [x] 8.3 Add undo logic that restores the latest valid kept/discarded candidate to ready and makes it current.
 - [x] 8.4 Add ArrowLeft and visible undo controls in normal and immersive review modes.
+
+## 9. Candidate Download
+
+- [x] 9.1 Add a current-candidate download action with safe filenames.
+- [x] 9.2 Add ArrowRight and visible download controls in normal and immersive review modes.
+- [x] 9.3 Ensure downloading does not change candidate state or decision history.
+
+## 10. Candidate Queue Performance
+
+- [x] 10.1 Use thumbnail images for normal and immersive candidate queues.
+- [x] 10.2 Keep primary review images and immersive review images loading the original full-resolution image.

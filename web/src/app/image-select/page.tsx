@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, ImageIcon, LoaderCircle, Maximize2, Pause, Play, Settings2, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, Download, ImageIcon, LoaderCircle, Maximize2, Pause, Play, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { ImageThumbnail } from "@/components/image-thumbnail";
 import {
   Dialog,
   DialogContent,
@@ -121,6 +122,49 @@ function countTrailingCandidateErrors(candidates: ImageSelectionCandidate[]) {
   return count;
 }
 
+function sanitizeDownloadName(value: string) {
+  return value.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").slice(0, 80) || "image-selection";
+}
+
+function getExtensionFromMime(type: string) {
+  if (type.includes("jpeg") || type.includes("jpg")) return "jpg";
+  if (type.includes("webp")) return "webp";
+  if (type.includes("gif")) return "gif";
+  return "png";
+}
+
+function getExtensionFromUrl(url: string) {
+  const match = url.match(/\.([a-z0-9]+)(?:[?#]|$)/i);
+  return match?.[1]?.toLowerCase() || "png";
+}
+
+async function downloadImageUrl(url: string, fileName: string) {
+  const anchor = document.createElement("a");
+  anchor.rel = "noopener";
+  anchor.download = fileName;
+  try {
+    if (url.startsWith("data:")) {
+      anchor.href = url;
+      anchor.click();
+      return;
+    }
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error("download failed");
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    anchor.href = objectUrl;
+    anchor.download = fileName.replace(/\.[a-z0-9]+$/i, `.${getExtensionFromMime(blob.type)}`);
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  } catch {
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+  }
+}
+
 type CandidateStripProps = {
   candidates: ImageSelectionCandidate[];
   currentCandidateId?: string;
@@ -153,7 +197,7 @@ function CandidateStrip({ candidates, currentCandidateId, size, onSelectCandidat
             }}
           >
             {candidate.url ? (
-              <img src={candidate.url} alt="候选缩略图" className="h-full w-full object-cover" />
+              <ImageThumbnail src={candidate.url} alt="候选缩略图" className="h-full w-full" />
             ) : (
               <div className="flex h-full w-full items-center justify-center">
                 <LoaderCircle className="size-4 animate-spin text-stone-400" />
@@ -177,8 +221,10 @@ type ReviewStageProps = {
   onKeep: () => void;
   onDiscard: () => void;
   onUndo: () => void;
+  onDownload: () => void;
   onSelectCandidate: (candidateId: string) => void;
   canUndo: boolean;
+  canDownload: boolean;
   immersiveActions?: ReactNode;
 };
 
@@ -193,8 +239,10 @@ function ReviewStage({
   onKeep,
   onDiscard,
   onUndo,
+  onDownload,
   onSelectCandidate,
   canUndo,
+  canDownload,
   immersiveActions,
 }: ReviewStageProps) {
   if (immersive) {
@@ -222,6 +270,10 @@ function ReviewStage({
             <Button variant="outline" className="rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20" disabled={!canUndo} onClick={onUndo}>
               <ArrowLeft className="size-4" />
               撤销
+            </Button>
+            <Button variant="outline" className="rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20" disabled={!canDownload} onClick={onDownload}>
+              <Download className="size-4" />
+              下载
             </Button>
             {immersiveActions}
           </div>
@@ -259,7 +311,7 @@ function ReviewStage({
           )}
         </div>
 
-        <div className="flex w-full max-w-[900px] flex-col gap-2 sm:flex-row">
+        <div className="grid w-full max-w-[960px] grid-cols-1 gap-2 sm:grid-cols-4">
           <Button className="h-13 flex-1 rounded-2xl bg-emerald-600 text-white hover:bg-emerald-700" disabled={!currentCandidate} onClick={onKeep}>
             <ArrowUp className="size-5" />
             保留（↑）
@@ -271,6 +323,10 @@ function ReviewStage({
           <Button variant="outline" className="h-13 flex-1 rounded-2xl border-stone-200 bg-white text-stone-700 hover:bg-stone-50" disabled={!canUndo} onClick={onUndo}>
             <ArrowLeft className="size-5" />
             撤销（←）
+          </Button>
+          <Button variant="outline" className="h-13 flex-1 rounded-2xl border-stone-200 bg-white text-stone-700 hover:bg-stone-50" disabled={!canDownload} onClick={onDownload}>
+            <Download className="size-5" />
+            下载（→）
           </Button>
         </div>
       </div>
@@ -576,6 +632,20 @@ function ImageSelectContent() {
     }
   }, [selectedSession, updateSession]);
 
+  const downloadCurrentCandidate = useCallback(async () => {
+    if (!selectedSession || !currentCandidate?.url) {
+      return;
+    }
+    const baseName = sanitizeDownloadName(selectedSession.title || selectedSession.prompt || selectedSession.id);
+    const extension = currentCandidate.url.startsWith("data:") ? "png" : getExtensionFromUrl(currentCandidate.url);
+    try {
+      await downloadImageUrl(currentCandidate.url, `${baseName}-${currentCandidate.id}.${extension}`);
+      toast.success("已开始下载当前图片");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "下载当前图片失败");
+    }
+  }, [currentCandidate, selectedSession]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isTextInputTarget(event.target)) {
@@ -588,6 +658,10 @@ function ImageSelectContent() {
       }
       if (!currentCandidate) {
         return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        void downloadCurrentCandidate();
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
@@ -604,7 +678,7 @@ function ImageSelectContent() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentCandidate, decideCurrent, isImmersive, undoLastDecision]);
+  }, [currentCandidate, decideCurrent, downloadCurrentCandidate, isImmersive, undoLastDecision]);
 
   useEffect(() => {
     if (!selectedSession) {
@@ -907,8 +981,10 @@ function ImageSelectContent() {
               onKeep={() => void decideCurrent("kept")}
               onDiscard={() => void decideCurrent("discarded")}
               onUndo={() => void undoLastDecision()}
+              onDownload={() => void downloadCurrentCandidate()}
               onSelectCandidate={setCurrentCandidateId}
               canUndo={selectedSession.decisionHistory.length > 0}
+              canDownload={Boolean(currentCandidate?.url)}
             />
           </>
         )}
@@ -926,8 +1002,10 @@ function ImageSelectContent() {
             onKeep={() => void decideCurrent("kept")}
             onDiscard={() => void decideCurrent("discarded")}
             onUndo={() => void undoLastDecision()}
+            onDownload={() => void downloadCurrentCandidate()}
             onSelectCandidate={setCurrentCandidateId}
             canUndo={selectedSession.decisionHistory.length > 0}
+            canDownload={Boolean(currentCandidate?.url)}
             immersiveActions={(
               <>
                 {selectedSession.status === "running" ? (

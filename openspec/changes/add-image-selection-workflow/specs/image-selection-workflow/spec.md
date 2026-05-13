@@ -27,7 +27,7 @@ The system SHALL continuously submit image generation tasks while a selection se
 - **THEN** the system SHALL mark the candidate as discarded without deleting the image file and submit a replacement generation task if the running session is below its queue limit
 
 ### Requirement: Candidate decision controls
-The image selection page SHALL present the current ready candidate as a large primary image and provide both keyboard shortcuts and visible action buttons for keeping or discarding it.
+The image selection page SHALL present the current ready candidate as a large primary image and provide both keyboard shortcuts and visible action buttons for keeping, discarding, undoing, and downloading it.
 
 #### Scenario: Keep by keyboard
 - **WHEN** a ready candidate is focused for review and the user presses ArrowUp outside of a text input
@@ -52,6 +52,14 @@ The image selection page SHALL present the current ready candidate as a large pr
 #### Scenario: Undo is non-destructive
 - **WHEN** the user undoes a keep or discard decision
 - **THEN** the system SHALL only update selection-session state and SHALL NOT create, delete, or restore physical image files
+
+#### Scenario: Download current candidate
+- **WHEN** a ready candidate is focused for review and the user presses ArrowRight outside of a text input or clicks the visible download control
+- **THEN** the system SHALL download the current candidate image without changing candidate state or decision history
+
+#### Scenario: Candidate queue uses thumbnails
+- **WHEN** candidate images are shown in the normal or immersive candidate queue
+- **THEN** the system SHALL use thumbnail image URLs when available while keeping the primary review image and immersive review image at full resolution
 
 ### Requirement: Generation errors are skipped
 The system SHALL automatically skip failed candidate generation tasks and continue filling the queue without requiring user decisions on failed candidates.
