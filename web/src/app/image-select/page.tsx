@@ -5,7 +5,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, Check, Download, ImageIcon, LoaderCircle
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { ImageThumbnail } from "@/components/image-thumbnail";
+import { getImageThumbnailUrl, ImageThumbnail } from "@/components/image-thumbnail";
 import {
   Dialog,
   DialogContent,
@@ -177,12 +177,12 @@ type ReviewStageProps = {
   hasLoading: boolean;
   isSubmitting: boolean;
   immersive?: boolean;
-  currentImageLoading: boolean;
+  loadedOriginalKey: string | null;
+  onOriginalImageLoad: (imageKey: string) => void;
   onKeep: () => void;
   onDiscard: () => void;
   onUndo: () => void;
   onDownload: () => void;
-  onCurrentImageLoad: () => void;
   onSelectCandidate: (candidateId: string) => void;
   canUndo: boolean;
   canDownload: boolean;
@@ -197,17 +197,39 @@ function ReviewStage({
   hasLoading,
   isSubmitting,
   immersive = false,
-  currentImageLoading,
+  loadedOriginalKey,
+  onOriginalImageLoad,
   onKeep,
   onDiscard,
   onUndo,
   onDownload,
-  onCurrentImageLoad,
   onSelectCandidate,
   canUndo,
   canDownload,
   immersiveActions,
 }: ReviewStageProps) {
+  const currentImageKey = currentCandidate?.url ? `${currentCandidate.id}:${currentCandidate.url}` : null;
+  const currentThumbnailUrl = currentCandidate?.url ? getImageThumbnailUrl(currentCandidate.url) : "";
+  const isOriginalLoaded = Boolean(currentImageKey && loadedOriginalKey === currentImageKey);
+
+  const currentImage = currentCandidate?.url ? (
+    <div className="relative flex h-full w-full items-center justify-center">
+      <img
+        key={`${currentImageKey}:thumb`}
+        src={currentThumbnailUrl}
+        alt="当前候选图缩略图"
+        className={cn("h-full w-full object-contain blur-sm transition-opacity", isOriginalLoaded ? "opacity-0" : "opacity-100")}
+      />
+      <img
+        key={`${currentImageKey}:original`}
+        src={currentCandidate.url}
+        alt="当前候选图"
+        className={cn("absolute inset-0 h-full w-full object-contain transition-opacity", isOriginalLoaded ? "opacity-100" : "opacity-0")}
+        onLoad={() => currentImageKey ? onOriginalImageLoad(currentImageKey) : undefined}
+      />
+    </div>
+  ) : null;
+
   if (immersive) {
     return (
       <div className="flex h-full min-h-0 flex-col bg-stone-950 text-white">
@@ -243,23 +265,7 @@ function ReviewStage({
         </div>
         <div className="flex min-h-0 flex-1 items-center justify-center p-3">
           <div className="flex h-full w-full items-center justify-center overflow-hidden">
-            {currentCandidate?.url ? (
-              <div className="relative flex h-full w-full items-center justify-center">
-                <img
-                  src={currentCandidate.url}
-                  alt="当前候选图"
-                  className="max-h-full max-w-full object-contain"
-                  onLoad={onCurrentImageLoad}
-                  onError={onCurrentImageLoad}
-                />
-                {currentImageLoading ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-stone-950/60 text-stone-100 backdrop-blur-sm">
-                    <LoaderCircle className="size-8 animate-spin" />
-                    <div>正在加载原图</div>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
+            {currentImage || (
               <div className="flex flex-col items-center gap-3 text-stone-300">
                 {hasLoading || isSubmitting ? <LoaderCircle className="size-8 animate-spin" /> : <ImageIcon className="size-8" />}
                 <div>{hasLoading || isSubmitting ? "正在等待候选图" : "暂无可选择候选"}</div>
@@ -278,23 +284,7 @@ function ReviewStage({
     <div className="flex min-h-0 flex-1 flex-col gap-4 pt-4">
       <div className="flex flex-1 flex-col items-center justify-center gap-4">
         <div className={cn("flex max-h-[64dvh] w-full max-w-[min(100%,920px)] items-center justify-center overflow-hidden rounded-[28px] bg-stone-950 text-white", aspectClass(session.size))}>
-          {currentCandidate?.url ? (
-            <div className="relative flex h-full w-full items-center justify-center">
-              <img
-                src={currentCandidate.url}
-                alt="当前候选图"
-                className="h-full w-full object-contain"
-                onLoad={onCurrentImageLoad}
-                onError={onCurrentImageLoad}
-              />
-              {currentImageLoading ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-stone-950/60 text-stone-100 backdrop-blur-sm">
-                  <LoaderCircle className="size-8 animate-spin" />
-                  <div>正在加载原图</div>
-                </div>
-              ) : null}
-            </div>
-          ) : (
+          {currentImage || (
             <div className="flex flex-col items-center gap-3 text-stone-300">
               {hasLoading || isSubmitting ? <LoaderCircle className="size-8 animate-spin" /> : <ImageIcon className="size-8" />}
               <div>{hasLoading || isSubmitting ? "正在等待候选图" : "暂无可选择候选"}</div>
@@ -350,7 +340,7 @@ function ImageSelectContent() {
   const [queueLimit, setQueueLimit] = useState(DEFAULT_QUEUE_LIMIT);
   const [failureLimit, setFailureLimit] = useState(DEFAULT_FAILURE_LIMIT);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentImageLoading, setCurrentImageLoading] = useState(false);
+  const [loadedOriginalKey, setLoadedOriginalKey] = useState<string | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isImmersive, setIsImmersive] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
@@ -376,7 +366,6 @@ function ImageSelectContent() {
     if (!selectedSession) {
       setCurrentCandidateId(null);
       setHiddenCandidateId(null);
-      setCurrentImageLoading(false);
       return;
     }
     if (readyCandidates.some((candidate) => candidate.id === currentCandidateId)) {
@@ -396,11 +385,8 @@ function ImageSelectContent() {
   }, [hiddenCandidateId, selectedSession]);
 
   useEffect(() => {
-    setCurrentImageLoading(Boolean(currentCandidate?.url));
-  }, [currentCandidate?.url]);
-
-  useEffect(() => {
     originalPreloadRef.current.clear();
+    setLoadedOriginalKey(null);
   }, [selectedSessionId]);
 
   useEffect(() => {
@@ -448,7 +434,7 @@ function ImageSelectContent() {
       setSelectedSessionId(nextSessions[0]?.id ?? null);
       setCurrentCandidateId(null);
       setHiddenCandidateId(null);
-      setCurrentImageLoading(false);
+      setLoadedOriginalKey(null);
       setIsImmersive(false);
     }
     setDeleteTargetId(null);
@@ -474,19 +460,9 @@ function ImageSelectContent() {
         if (cancelled) {
           return;
         }
-        const restored = storedSessions.map((session) =>
-          session.status === "running"
-            ? { ...session, status: "paused" as const, updatedAt: new Date().toISOString() }
-            : session,
-        );
-        sessionsRef.current = restored;
-        setSessions(restored);
-        setSelectedSessionId(restored[0]?.id ?? null);
-        for (const session of restored) {
-          if (session.status === "paused" && session.candidates.some((candidate) => candidate.status === "loading")) {
-            void saveImageSelectionSession(session);
-          }
-        }
+        sessionsRef.current = storedSessions;
+        setSessions(storedSessions);
+        setSelectedSessionId(storedSessions[0]?.id ?? null);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "加载选图会话失败");
       } finally {
@@ -522,12 +498,12 @@ function ImageSelectContent() {
       updatedAt: now,
       consecutiveFailures: 0,
     };
-    setSelectedSessionId(session.id);
     setCurrentCandidateId(null);
     setHiddenCandidateId(null);
-    setCurrentImageLoading(false);
+    setLoadedOriginalKey(null);
     setPrompt("");
     await persistSession(session);
+    setSelectedSessionId(session.id);
     toast.success("选图已开始");
   }, [failureLimit, imageSize, persistSession, prompt, queueLimit]);
 
@@ -584,7 +560,7 @@ function ImageSelectContent() {
     setSelectedSessionId(id);
     setCurrentCandidateId(null);
     setHiddenCandidateId(null);
-    setCurrentImageLoading(false);
+    setLoadedOriginalKey(null);
     setIsImmersive(false);
   }, []);
 
@@ -936,12 +912,12 @@ function ImageSelectContent() {
               reviewCandidates={reviewCandidates}
               hasLoading={hasLoading}
               isSubmitting={selectedSession.status === "running"}
-              currentImageLoading={currentImageLoading}
+              loadedOriginalKey={loadedOriginalKey}
+              onOriginalImageLoad={setLoadedOriginalKey}
               onKeep={() => void decideCurrent("kept")}
               onDiscard={() => void decideCurrent("discarded")}
               onUndo={() => void undoLastDecision()}
               onDownload={() => void downloadCurrentCandidate()}
-              onCurrentImageLoad={() => setCurrentImageLoading(false)}
               onSelectCandidate={setCurrentCandidateId}
               canUndo={selectedSession.decisionHistory.length > 0}
               canDownload={Boolean(currentCandidate?.url)}
@@ -959,12 +935,12 @@ function ImageSelectContent() {
             hasLoading={hasLoading}
             isSubmitting={selectedSession.status === "running"}
             immersive
-            currentImageLoading={currentImageLoading}
+            loadedOriginalKey={loadedOriginalKey}
+            onOriginalImageLoad={setLoadedOriginalKey}
             onKeep={() => void decideCurrent("kept")}
             onDiscard={() => void decideCurrent("discarded")}
             onUndo={() => void undoLastDecision()}
             onDownload={() => void downloadCurrentCandidate()}
-            onCurrentImageLoad={() => setCurrentImageLoading(false)}
             onSelectCandidate={setCurrentCandidateId}
             canUndo={selectedSession.decisionHistory.length > 0}
             canDownload={Boolean(currentCandidate?.url)}
