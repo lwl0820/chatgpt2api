@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, Check, ImageIcon, LoaderCircle, Maximize2, Pause, Play, Settings2, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, ImageIcon, LoaderCircle, Maximize2, Pause, Play, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ import {
 
 const DEFAULT_QUEUE_LIMIT = 6;
 const DEFAULT_FAILURE_LIMIT = 5;
+const MAX_DECISION_HISTORY = 10;
 const imageSizeOptions = [
   { value: "", label: "未指定" },
   { value: "1:1", label: "1:1" },
@@ -176,7 +177,9 @@ type ReviewStageProps = {
   immersive?: boolean;
   onKeep: () => void;
   onDiscard: () => void;
+  onUndo: () => void;
   onSelectCandidate: (candidateId: string) => void;
+  canUndo: boolean;
   immersiveActions?: ReactNode;
 };
 
@@ -190,7 +193,9 @@ function ReviewStage({
   immersive = false,
   onKeep,
   onDiscard,
+  onUndo,
   onSelectCandidate,
+  canUndo,
   immersiveActions,
 }: ReviewStageProps) {
   if (immersive) {
@@ -214,6 +219,10 @@ function ReviewStage({
             <Button variant="outline" className="rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20" disabled={!currentCandidate} onClick={onDiscard}>
               <ArrowDown className="size-4" />
               丢弃
+            </Button>
+            <Button variant="outline" className="rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20" disabled={!canUndo} onClick={onUndo}>
+              <ArrowLeft className="size-4" />
+              撤销
             </Button>
             {immersiveActions}
           </div>
@@ -251,7 +260,7 @@ function ReviewStage({
           )}
         </div>
 
-        <div className="flex w-full max-w-[720px] flex-col gap-2 sm:flex-row">
+        <div className="flex w-full max-w-[900px] flex-col gap-2 sm:flex-row">
           <Button className="h-13 flex-1 rounded-2xl bg-emerald-600 text-white hover:bg-emerald-700" disabled={!currentCandidate} onClick={onKeep}>
             <ArrowUp className="size-5" />
             保留（↑）
@@ -259,6 +268,10 @@ function ReviewStage({
           <Button variant="outline" className="h-13 flex-1 rounded-2xl border-rose-200 bg-white text-rose-600 hover:bg-rose-50" disabled={!currentCandidate} onClick={onDiscard}>
             <ArrowDown className="size-5" />
             丢弃（↓）
+          </Button>
+          <Button variant="outline" className="h-13 flex-1 rounded-2xl border-stone-200 bg-white text-stone-700 hover:bg-stone-50" disabled={!canUndo} onClick={onUndo}>
+            <ArrowLeft className="size-5" />
+            撤销（←）
           </Button>
         </div>
       </div>
@@ -405,6 +418,7 @@ function ImageSelectContent() {
       failureLimit,
       status: "running",
       candidates: [],
+      decisionHistory: [],
       createdAt: now,
       updatedAt: now,
       consecutiveFailures: 0,
@@ -476,19 +490,87 @@ function ImageSelectContent() {
       return;
     }
     const now = new Date().toISOString();
-    await updateSession(selectedSession.id, (session) => ({
-      ...session,
-      updatedAt: now,
-      candidates: session.candidates.map((candidate) =>
-        candidate.id === currentCandidate.id ? { ...candidate, status, decidedAt: now } : candidate,
-      ),
-    }));
+    await updateSession(selectedSession.id, (session) => {
+      let changed = false;
+      const candidates = session.candidates.map((candidate) => {
+        if (candidate.id !== currentCandidate.id || candidate.status !== "ready") {
+          return candidate;
+        }
+        changed = true;
+        return { ...candidate, status, decidedAt: now };
+      });
+      if (!changed) {
+        return session;
+      }
+      return {
+        ...session,
+        updatedAt: now,
+        candidates,
+        decisionHistory: [
+          ...session.decisionHistory,
+          { candidateId: currentCandidate.id, previousStatus: "ready" as const, nextStatus: status, decidedAt: now },
+        ].slice(-MAX_DECISION_HISTORY),
+      };
+    });
     setCurrentCandidateId(null);
   }, [currentCandidate, selectedSession, updateSession]);
 
+  const undoLastDecision = useCallback(async () => {
+    if (!selectedSession) {
+      return;
+    }
+    if (selectedSession.decisionHistory.length === 0) {
+      toast.info("没有可撤销的选图操作");
+      return;
+    }
+    let restoredCandidateId: string | null = null;
+    await updateSession(selectedSession.id, (session) => {
+      const history = [...session.decisionHistory];
+      let candidates = session.candidates;
+      while (history.length > 0) {
+        const item = history.pop();
+        if (!item) {
+          break;
+        }
+        const candidate = candidates.find((entry) => entry.id === item.candidateId);
+        if (!candidate || candidate.status !== item.nextStatus) {
+          continue;
+        }
+        restoredCandidateId = candidate.id;
+        candidates = candidates.map((entry) =>
+          entry.id === candidate.id ? { ...entry, status: "ready" as const, decidedAt: undefined } : entry,
+        );
+        break;
+      }
+      if (!restoredCandidateId && history.length === session.decisionHistory.length) {
+        return session;
+      }
+      return {
+        ...session,
+        candidates,
+        decisionHistory: history,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    if (restoredCandidateId) {
+      setCurrentCandidateId(restoredCandidateId);
+      toast.success("已撤销上一次选图操作");
+    } else {
+      toast.info("没有可撤销的选图操作");
+    }
+  }, [selectedSession, updateSession]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (isTextInputTarget(event.target) || !currentCandidate) {
+      if (isTextInputTarget(event.target)) {
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        void undoLastDecision();
+        return;
+      }
+      if (!currentCandidate) {
         return;
       }
       if (event.key === "ArrowUp") {
@@ -506,7 +588,7 @@ function ImageSelectContent() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentCandidate, decideCurrent, isImmersive]);
+  }, [currentCandidate, decideCurrent, isImmersive, undoLastDecision]);
 
   useEffect(() => {
     if (!selectedSession) {
@@ -808,7 +890,9 @@ function ImageSelectContent() {
               isSubmitting={isSubmitting}
               onKeep={() => void decideCurrent("kept")}
               onDiscard={() => void decideCurrent("discarded")}
+              onUndo={() => void undoLastDecision()}
               onSelectCandidate={setCurrentCandidateId}
+              canUndo={selectedSession.decisionHistory.length > 0}
             />
           </>
         )}
@@ -825,7 +909,9 @@ function ImageSelectContent() {
             immersive
             onKeep={() => void decideCurrent("kept")}
             onDiscard={() => void decideCurrent("discarded")}
+            onUndo={() => void undoLastDecision()}
             onSelectCandidate={setCurrentCandidateId}
+            canUndo={selectedSession.decisionHistory.length > 0}
             immersiveActions={(
               <>
                 {selectedSession.status === "running" ? (

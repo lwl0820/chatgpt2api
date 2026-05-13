@@ -17,6 +17,13 @@ export type ImageSelectionCandidate = {
   decidedAt?: string;
 };
 
+export type ImageSelectionDecisionHistoryItem = {
+  candidateId: string;
+  previousStatus: "ready";
+  nextStatus: "kept" | "discarded";
+  decidedAt: string;
+};
+
 export type ImageSelectionSession = {
   id: string;
   title: string;
@@ -26,11 +33,14 @@ export type ImageSelectionSession = {
   failureLimit: number;
   status: ImageSelectionSessionStatus;
   candidates: ImageSelectionCandidate[];
+  decisionHistory: ImageSelectionDecisionHistoryItem[];
   createdAt: string;
   updatedAt: string;
   consecutiveFailures: number;
   lastError?: string;
 };
+
+const MAX_DECISION_HISTORY = 10;
 
 export type ImageSelectionSessionStats = {
   loading: number;
@@ -68,6 +78,21 @@ function normalizeCandidate(candidate: ImageSelectionCandidate & Record<string, 
   };
 }
 
+function normalizeDecisionHistoryItem(
+  item: ImageSelectionDecisionHistoryItem & Record<string, unknown>,
+): ImageSelectionDecisionHistoryItem | null {
+  const nextStatus = item.nextStatus === "kept" || item.nextStatus === "discarded" ? item.nextStatus : null;
+  if (!item.candidateId || !nextStatus) {
+    return null;
+  }
+  return {
+    candidateId: String(item.candidateId),
+    previousStatus: "ready",
+    nextStatus,
+    decidedAt: String(item.decidedAt || new Date().toISOString()),
+  };
+}
+
 export function normalizeImageSelectionSession(session: ImageSelectionSession & Record<string, unknown>): ImageSelectionSession {
   const candidates = Array.isArray(session.candidates)
     ? session.candidates.map((candidate) => normalizeCandidate(candidate as ImageSelectionCandidate & Record<string, unknown>))
@@ -75,6 +100,12 @@ export function normalizeImageSelectionSession(session: ImageSelectionSession & 
   const status = session.status === "running" || session.status === "paused" || session.status === "idle"
     ? session.status
     : "paused";
+  const decisionHistory = Array.isArray(session.decisionHistory)
+    ? session.decisionHistory
+      .map((item) => normalizeDecisionHistoryItem(item as ImageSelectionDecisionHistoryItem & Record<string, unknown>))
+      .filter((item): item is ImageSelectionDecisionHistoryItem => Boolean(item))
+      .slice(-MAX_DECISION_HISTORY)
+    : [];
   const prompt = String(session.prompt || "");
   return {
     id: String(session.id || `${Date.now()}`),
@@ -85,6 +116,7 @@ export function normalizeImageSelectionSession(session: ImageSelectionSession & 
     failureLimit: Math.max(1, Math.min(100, Number(session.failureLimit || 5))),
     status,
     candidates,
+    decisionHistory,
     createdAt: String(session.createdAt || new Date().toISOString()),
     updatedAt: String(session.updatedAt || new Date().toISOString()),
     consecutiveFailures: Math.max(0, Number(session.consecutiveFailures || 0)),

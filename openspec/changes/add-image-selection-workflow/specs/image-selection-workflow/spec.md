@@ -41,6 +41,18 @@ The image selection page SHALL present the current ready candidate as a large pr
 - **WHEN** the user clicks the visible keep or discard button for the current ready candidate
 - **THEN** the system SHALL perform the same decision action as the corresponding keyboard shortcut
 
+#### Scenario: Undo latest decision
+- **WHEN** the user presses ArrowLeft outside of a text input or clicks the visible undo control after keeping or discarding candidates
+- **THEN** the system SHALL restore the latest kept or discarded candidate to ready status and make it the current candidate for review
+
+#### Scenario: Undo history is bounded
+- **WHEN** the user makes more than ten keep or discard decisions in a selection session
+- **THEN** the system SHALL retain only the ten most recent decisions for undo
+
+#### Scenario: Undo is non-destructive
+- **WHEN** the user undoes a keep or discard decision
+- **THEN** the system SHALL only update selection-session state and SHALL NOT create, delete, or restore physical image files
+
 ### Requirement: Generation errors are skipped
 The system SHALL automatically skip failed candidate generation tasks and continue filling the queue without requiring user decisions on failed candidates.
 

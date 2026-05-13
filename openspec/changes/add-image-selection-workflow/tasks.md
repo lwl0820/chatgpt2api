@@ -52,3 +52,10 @@
 - [x] 7.2 Persist edited session limits and use them for subsequent queue fill and failure pause behavior.
 - [x] 7.3 Allow editing the current selection session title from the configuration dialog.
 - [x] 7.4 Calculate consecutive failures from the tail of candidate creation order instead of task completion order.
+
+## 8. Decision Undo
+
+- [x] 8.1 Add per-session persisted decision history bounded to the ten most recent keep/discard decisions.
+- [x] 8.2 Record keep and discard decisions in history while preserving non-destructive image behavior.
+- [x] 8.3 Add undo logic that restores the latest valid kept/discarded candidate to ready and makes it current.
+- [x] 8.4 Add ArrowLeft and visible undo controls in normal and immersive review modes.
