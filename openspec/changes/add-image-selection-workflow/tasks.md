@@ -1,8 +1,8 @@
 ## 1. Settings And Data Model
 
-- [x] 1.1 Add `image_selection_queue_size` to backend config normalization, settings responses, and frontend `SettingsConfig` typing with a safe default.
-- [x] 1.2 Add the selection queue length control to the settings page and settings store actions.
-- [x] 1.3 Create a local `image-selection-sessions` store with session, candidate, status, normalization, persistence, and stats helpers.
+- [x] 1.1 Keep selection queue length and consecutive failure pause threshold as per-session fields instead of global settings.
+- [x] 1.2 Remove the global selection queue length control from settings.
+- [x] 1.3 Create a local `image-selection-sessions` store with session, candidate, status, limits, normalization, persistence, and stats helpers.
 - [x] 1.4 Add utilities to extract image relative paths from generated image URLs for matching against `ManagedImage.rel`.
 
 ## 2. Image Selection Page
@@ -37,3 +37,11 @@
 - [x] 5.5 Verify refreshing or reopening a session restores state but does not submit new tasks until continue is clicked.
 - [x] 5.6 Verify image manager selection-session filtering shows only kept images and works with existing tag/date filters.
 - [x] 5.7 Run the available frontend checks, at least TypeScript or lint, and address any regressions.
+
+## 6. Session Management And Immersive Review
+
+- [x] 6.1 Add non-destructive image selection session deletion to local storage.
+- [x] 6.2 Add delete controls and confirmation UI to the image selection session list.
+- [x] 6.3 Ensure deleting the active session selects a fallback session or returns to empty state without deleting image files.
+- [x] 6.4 Add an in-app immersive review mode that fills the browser viewport without using browser fullscreen APIs.
+- [x] 6.5 Preserve keep, discard, thumbnail selection, and Escape-to-exit behavior in immersive mode.

@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Image selection sessions
-The system SHALL provide an image selection workflow where a user can create and resume local selection sessions built around a single prompt and image generation configuration.
+The system SHALL provide an image selection workflow where a user can create and resume local selection sessions built around a single prompt, image generation configuration, candidate queue length, and consecutive failure pause limit.
 
 #### Scenario: Create selection session
 - **WHEN** the user enters a non-empty prompt on the image selection page and starts selection
-- **THEN** the system SHALL create a selection session with the prompt, image size, queue limit snapshot, empty candidate list, and running status
+- **THEN** the system SHALL create a selection session with the prompt, image size, queue limit, consecutive failure pause limit, empty candidate list, and running status
 
 #### Scenario: Restore existing selection session
 - **WHEN** the user opens a previously created selection session
@@ -49,7 +49,7 @@ The system SHALL automatically skip failed candidate generation tasks and contin
 - **THEN** the system SHALL mark that candidate as error, exclude it from the active candidate queue, and continue filling available queue slots while the session is running
 
 #### Scenario: Repeated failures pause selection
-- **WHEN** candidate generation failures continue past the implementation-defined consecutive failure limit
+- **WHEN** candidate generation failures reach the selection session's configured consecutive failure limit
 - **THEN** the system SHALL pause the selection session and show an error state requiring the user to manually continue
 
 ### Requirement: Selection delete is non-destructive
@@ -58,6 +58,32 @@ The system SHALL treat discarding a candidate as a selection-session state chang
 #### Scenario: Discard keeps physical file
 - **WHEN** the user discards a candidate whose image was saved to the local image directory
 - **THEN** the system SHALL keep the underlying image file available to global image management and only mark the candidate as discarded in the selection session
+
+### Requirement: Selection session deletion is non-destructive
+The system SHALL allow users to delete an image selection session record without deleting any generated image files.
+
+#### Scenario: Delete selection session
+- **WHEN** the user confirms deletion of an image selection session
+- **THEN** the system SHALL remove the local selection session record and keep all generated image files available in global image management
+
+#### Scenario: Delete active selection session
+- **WHEN** the user deletes the currently selected image selection session
+- **THEN** the system SHALL select another available selection session or return to the empty selection state
+
+### Requirement: Immersive image selection mode
+The image selection page SHALL provide an in-app immersive review mode that lets the current candidate image use as much of the browser viewport as possible without invoking browser or operating system fullscreen.
+
+#### Scenario: Enter immersive mode
+- **WHEN** the user activates immersive image selection mode for a selection session
+- **THEN** the system SHALL display the review UI in a viewport-filling in-app overlay with the current image using the available browser window space
+
+#### Scenario: Exit immersive mode
+- **WHEN** the user presses Escape or clicks the exit control in immersive mode
+- **THEN** the system SHALL return to the normal image selection page layout
+
+#### Scenario: Immersive decisions
+- **WHEN** the user keeps or discards a candidate in immersive mode
+- **THEN** the system SHALL apply the same non-destructive candidate decision behavior as the normal review mode
 
 ### Requirement: Manual resume after page reload
 The system SHALL restore selection session state after page reload without automatically submitting new generation tasks to fill the queue.
@@ -70,16 +96,16 @@ The system SHALL restore selection session state after page reload without autom
 - **WHEN** a restored selection session contains loading candidates with task IDs
 - **THEN** the system SHALL be allowed to poll those existing tasks and update their terminal status without submitting additional replacement tasks until the user manually continues selection
 
-### Requirement: Configurable selection queue limit
-The system SHALL allow administrators to configure the default image selection candidate queue length in settings.
+### Requirement: Configurable session limits
+The system SHALL allow users to configure the candidate queue length and consecutive failure pause limit when creating an image selection session.
 
-#### Scenario: Save queue length setting
-- **WHEN** an administrator saves a valid image selection queue length in settings
-- **THEN** new selection sessions SHALL use that value as their default queue limit
+#### Scenario: Create with session limits
+- **WHEN** the user starts an image selection session with valid queue length and consecutive failure pause values
+- **THEN** the system SHALL store those values on that selection session and use them for queue fill and failure pause behavior
 
-#### Scenario: Missing queue length setting
-- **WHEN** the queue length setting is missing or invalid
-- **THEN** the system SHALL use a safe default queue length
+#### Scenario: Missing session limits
+- **WHEN** session limit values are missing or invalid
+- **THEN** the system SHALL use safe default values for queue length and consecutive failure pause behavior
 
 ### Requirement: Image manager selection-session filtering
 The image manager SHALL allow users with image manager access to filter images by a local image selection session's kept images.

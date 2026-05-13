@@ -23,6 +23,7 @@ export type ImageSelectionSession = {
   prompt: string;
   size: string;
   queueLimit: number;
+  failureLimit: number;
   status: ImageSelectionSessionStatus;
   candidates: ImageSelectionCandidate[];
   createdAt: string;
@@ -81,6 +82,7 @@ export function normalizeImageSelectionSession(session: ImageSelectionSession & 
     prompt,
     size: typeof session.size === "string" ? session.size : "",
     queueLimit: Math.max(1, Math.min(100, Number(session.queueLimit || 6))),
+    failureLimit: Math.max(1, Math.min(100, Number(session.failureLimit || 5))),
     status,
     candidates,
     createdAt: String(session.createdAt || new Date().toISOString()),
@@ -192,5 +194,15 @@ export async function saveImageSelectionSessions(sessions: ImageSelectionSession
       sessionMap.set(session.id, current ? pickLatestSession(current, session) : session);
     }
     await imageSelectionStorage.setItem(IMAGE_SELECTION_SESSIONS_KEY, sortSessions([...sessionMap.values()]));
+  });
+}
+
+export async function deleteImageSelectionSession(id: string): Promise<void> {
+  await queueImageSelectionWrite(async () => {
+    const items = await readStoredImageSelectionSessions();
+    await imageSelectionStorage.setItem(
+      IMAGE_SELECTION_SESSIONS_KEY,
+      items.filter((item) => item.id !== id),
+    );
   });
 }
