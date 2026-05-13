@@ -61,6 +61,14 @@ The image selection page SHALL present the current ready candidate as a large pr
 - **WHEN** candidate images are shown in the normal or immersive candidate queue
 - **THEN** the system SHALL use thumbnail image URLs when available while keeping the primary review image and immersive review image at full resolution
 
+#### Scenario: Upcoming original images are preloaded
+- **WHEN** a ready candidate is selected for review and additional ready candidates follow it
+- **THEN** the system SHALL preload a small bounded number of upcoming original images to reduce primary review transition latency without rendering full-resolution images in the candidate queue
+
+#### Scenario: Primary image loading is visible
+- **WHEN** the primary review image or immersive review image is loading its original image
+- **THEN** the system SHALL show a loading indication until the original image finishes loading or errors without changing candidate state or decision history
+
 ### Requirement: Generation errors are skipped
 The system SHALL automatically skip failed candidate generation tasks and continue filling the queue without requiring user decisions on failed candidates.
 

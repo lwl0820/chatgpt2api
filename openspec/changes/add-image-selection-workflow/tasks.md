@@ -70,3 +70,5 @@
 
 - [x] 10.1 Use thumbnail images for normal and immersive candidate queues.
 - [x] 10.2 Keep primary review images and immersive review images loading the original full-resolution image.
+- [x] 10.3 Preload a small bounded number of upcoming original images for smoother review transitions.
+- [x] 10.4 Show a loading indication while the primary review image or immersive review image loads the original image.
