@@ -111,6 +111,25 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
         self.assertEqual(session["status"], "paused")
         self.assertEqual(session["lastError"], "连续生成失败，已暂停选图")
 
+    def test_syncs_loading_candidates_after_session_paused(self):
+        self.save_selection({
+            "id": "session-1",
+            "status": "paused",
+            "prompt": "cat",
+            "queueLimit": 1,
+            "failureLimit": 5,
+            "candidates": [{"id": "candidate-1", "taskId": "task-1", "status": "loading", "createdAt": "now"}],
+        })
+        self.task_service.tasks["task-1"] = {"id": "task-1", "status": "error", "error": "boom"}
+
+        self.service.run_once()
+
+        session = self.get_selection()
+        self.assertEqual(session["status"], "paused")
+        self.assertEqual(session["candidates"][0]["status"], "error")
+        self.assertEqual(session["candidates"][0]["error"], "boom")
+        self.assertEqual(len(self.task_service.submitted), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

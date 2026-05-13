@@ -720,7 +720,7 @@ function ImageSelectContent() {
   }, [selectedSession]);
 
   useEffect(() => {
-    if (selectedSession?.status !== "running") {
+    if (selectedSession?.status !== "running" && !hasLoading) {
       return;
     }
     let cancelled = false;
@@ -757,7 +757,7 @@ function ImageSelectContent() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [selectedSession?.status, selectedSessionId]);
+  }, [hasLoading, selectedSession?.status, selectedSessionId]);
 
   if (isLoading) {
     return <div className="flex min-h-[40vh] items-center justify-center"><LoaderCircle className="size-5 animate-spin text-stone-400" /></div>;

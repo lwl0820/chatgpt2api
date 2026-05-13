@@ -123,8 +123,6 @@ class ImageSelectionQueueService:
             self._stop_event.wait(self.interval_seconds)
 
     def _process_session(self, owner_id: str, session: dict[str, Any]) -> None:
-        if session.get("status") != "running":
-            return
         identity = {"id": owner_id, "name": owner_id, "role": "user"}
         session = self._sync_loading_candidates(identity, owner_id, session)
         if session.get("status") != "running":
