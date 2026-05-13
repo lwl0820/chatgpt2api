@@ -23,7 +23,6 @@ import {
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
 import {
-  buildImageSelectionTitle,
   deleteImageSelectionSession,
   extractManagedImageRel,
   getImageSelectionSessionStats,
@@ -411,7 +410,7 @@ function ImageSelectContent() {
     const now = new Date().toISOString();
     const session: ImageSelectionSession = {
       id: createId(),
-      title: buildImageSelectionTitle(text),
+      title: text,
       prompt: text,
       size: imageSize,
       queueLimit,
@@ -464,7 +463,7 @@ function ImageSelectContent() {
     if (!selectedSession) {
       return;
     }
-    const nextTitle = configTitle.trim() || buildImageSelectionTitle(selectedSession.prompt);
+    const nextTitle = configTitle.trim() || selectedSession.prompt;
     const nextQueueLimit = Math.max(1, Math.min(100, Number(configQueueLimit) || DEFAULT_QUEUE_LIMIT));
     const nextFailureLimit = Math.max(1, Math.min(100, Number(configFailureLimit) || DEFAULT_FAILURE_LIMIT));
     await updateSession(selectedSession.id, (session) => ({
