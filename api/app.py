@@ -8,10 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from api import accounts, ai, image_tasks, register, system
+from api import accounts, ai, image_tasks, register, sessions, system
 from api.support import resolve_web_asset, start_limited_account_watcher
 from services.backup_service import backup_service
 from services.config import config
+from services.image_selection_queue_service import image_selection_queue_service
 
 
 def create_app() -> FastAPI:
@@ -22,12 +23,14 @@ def create_app() -> FastAPI:
         stop_event = Event()
         thread = start_limited_account_watcher(stop_event)
         backup_service.start()
+        image_selection_queue_service.start()
         config.cleanup_old_images()
         try:
             yield
         finally:
             stop_event.set()
             thread.join(timeout=1)
+            image_selection_queue_service.stop()
             backup_service.stop()
 
     app = FastAPI(title="chatgpt2api", version=app_version, lifespan=lifespan)
@@ -41,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(ai.create_router())
     app.include_router(accounts.create_router())
     app.include_router(image_tasks.create_router())
+    app.include_router(sessions.create_router())
     app.include_router(register.create_router())
     app.include_router(system.create_router(app_version))
     if config.images_dir.exists():

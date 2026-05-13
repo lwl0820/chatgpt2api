@@ -15,6 +15,7 @@ function readAppVersion() {
 }
 
 const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || readAppVersion()
+const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'
 
 const nextConfig: NextConfig = {
     allowedDevOrigins: ['127.0.0.1'],
@@ -29,6 +30,19 @@ const nextConfig: NextConfig = {
     typescript: {
         ignoreBuildErrors: true,
     },
+}
+
+if (process.env.NODE_ENV === 'development') {
+    nextConfig.rewrites = async () => [
+        {
+            source: '/images/:path*',
+            destination: `${backendUrl}/images/:path*`,
+        },
+        {
+            source: '/image-thumbnails/:path*',
+            destination: `${backendUrl}/image-thumbnails/:path*`,
+        },
+    ]
 }
 
 export default nextConfig

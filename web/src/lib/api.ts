@@ -183,6 +183,16 @@ type ImageTaskListResponse = {
   missing_ids: string[];
 };
 
+export type BackendSessionKind = "image-conversation" | "image-selection-session";
+
+type BackendSessionListResponse<T> = {
+  items: T[];
+};
+
+type BackendSessionItemResponse<T> = {
+  item: T;
+};
+
 export type LoginResponse = {
   ok: boolean;
   version: string;
@@ -379,6 +389,28 @@ export async function fetchImageTasks(ids: string[]) {
     params.set("ids", ids.join(","));
   }
   return httpRequest<ImageTaskListResponse>(`/api/image-tasks${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export async function fetchBackendSessions<T>(kind: BackendSessionKind) {
+  const params = new URLSearchParams({ kind });
+  return httpRequest<BackendSessionListResponse<T>>(`/api/sessions?${params.toString()}`);
+}
+
+export async function fetchBackendSession<T>(kind: BackendSessionKind, id: string) {
+  return httpRequest<BackendSessionItemResponse<T>>(`/api/sessions/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`);
+}
+
+export async function saveBackendSession<T extends { id?: string }>(kind: BackendSessionKind, item: T) {
+  return httpRequest<BackendSessionItemResponse<T>>("/api/sessions", {
+    method: "POST",
+    body: { kind, item },
+  });
+}
+
+export async function deleteBackendSession(kind: BackendSessionKind, id: string) {
+  return httpRequest<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }
 
 export async function fetchSettingsConfig() {

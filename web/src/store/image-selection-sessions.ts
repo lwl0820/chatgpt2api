@@ -1,6 +1,12 @@
 "use client";
 
-import localforage from "localforage";
+import {
+  deleteBackendSession,
+  fetchBackendSession,
+  fetchBackendSessions,
+  saveBackendSession,
+  type BackendSessionKind,
+} from "@/lib/api";
 
 export type ImageSelectionCandidateStatus = "loading" | "ready" | "kept" | "discarded" | "error";
 export type ImageSelectionSessionStatus = "running" | "paused" | "idle";
@@ -51,13 +57,7 @@ export type ImageSelectionSessionStats = {
   active: number;
 };
 
-const imageSelectionStorage = localforage.createInstance({
-  name: "chatgpt2api",
-  storeName: "image_selection_sessions",
-});
-
-const IMAGE_SELECTION_SESSIONS_KEY = "items";
-let imageSelectionWriteQueue: Promise<void> = Promise.resolve();
+const IMAGE_SELECTION_SESSION_KIND: BackendSessionKind = "image-selection-session";
 
 function normalizeCandidate(candidate: ImageSelectionCandidate & Record<string, unknown>): ImageSelectionCandidate {
   const status = ["loading", "ready", "kept", "discarded", "error"].includes(String(candidate.status))
@@ -174,67 +174,30 @@ function sortSessions(sessions: ImageSelectionSession[]) {
   return [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-function getTimestamp(value: string) {
-  const time = new Date(value).getTime();
-  return Number.isFinite(time) ? time : 0;
-}
-
-function pickLatestSession(current: ImageSelectionSession, next: ImageSelectionSession) {
-  return getTimestamp(next.updatedAt) >= getTimestamp(current.updatedAt) ? next : current;
-}
-
-function queueImageSelectionWrite<T>(operation: () => Promise<T>): Promise<T> {
-  const result = imageSelectionWriteQueue.then(operation);
-  imageSelectionWriteQueue = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
-
-async function readStoredImageSelectionSessions(): Promise<ImageSelectionSession[]> {
-  const items =
-    (await imageSelectionStorage.getItem<Array<ImageSelectionSession & Record<string, unknown>>>(
-      IMAGE_SELECTION_SESSIONS_KEY,
-    )) || [];
-  return items.map(normalizeImageSelectionSession);
-}
-
 export async function listImageSelectionSessions(): Promise<ImageSelectionSession[]> {
-  return sortSessions(await readStoredImageSelectionSessions());
+  const data = await fetchBackendSessions<ImageSelectionSession & Record<string, unknown>>(IMAGE_SELECTION_SESSION_KIND);
+  return sortSessions(data.items.map(normalizeImageSelectionSession));
+}
+
+export async function getImageSelectionSession(id: string): Promise<ImageSelectionSession | null> {
+  try {
+    const data = await fetchBackendSession<ImageSelectionSession & Record<string, unknown>>(IMAGE_SELECTION_SESSION_KIND, id);
+    return normalizeImageSelectionSession(data.item);
+  } catch {
+    return null;
+  }
 }
 
 export async function saveImageSelectionSession(session: ImageSelectionSession): Promise<void> {
-  await queueImageSelectionWrite(async () => {
-    const items = await readStoredImageSelectionSessions();
-    const nextSession = normalizeImageSelectionSession(session);
-    const current = items.find((item) => item.id === nextSession.id);
-    const persistedSession = current ? pickLatestSession(current, nextSession) : nextSession;
-    await imageSelectionStorage.setItem(
-      IMAGE_SELECTION_SESSIONS_KEY,
-      sortSessions([persistedSession, ...items.filter((item) => item.id !== persistedSession.id)]),
-    );
-  });
+  await saveBackendSession(IMAGE_SELECTION_SESSION_KIND, normalizeImageSelectionSession(session));
 }
 
 export async function saveImageSelectionSessions(sessions: ImageSelectionSession[]): Promise<void> {
-  await queueImageSelectionWrite(async () => {
-    const items = await readStoredImageSelectionSessions();
-    const sessionMap = new Map(items.map((item) => [item.id, item]));
-    for (const session of sessions.map(normalizeImageSelectionSession)) {
-      const current = sessionMap.get(session.id);
-      sessionMap.set(session.id, current ? pickLatestSession(current, session) : session);
-    }
-    await imageSelectionStorage.setItem(IMAGE_SELECTION_SESSIONS_KEY, sortSessions([...sessionMap.values()]));
-  });
+  await Promise.all(
+    sessions.map((session) => saveBackendSession(IMAGE_SELECTION_SESSION_KIND, normalizeImageSelectionSession(session))),
+  );
 }
 
 export async function deleteImageSelectionSession(id: string): Promise<void> {
-  await queueImageSelectionWrite(async () => {
-    const items = await readStoredImageSelectionSessions();
-    await imageSelectionStorage.setItem(
-      IMAGE_SELECTION_SESSIONS_KEY,
-      items.filter((item) => item.id !== id),
-    );
-  });
+  await deleteBackendSession(IMAGE_SELECTION_SESSION_KIND, id);
 }

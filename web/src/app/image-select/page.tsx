@@ -16,16 +16,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  createImageGenerationTask,
-  fetchImageTasks,
-  type ImageTask,
-} from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
 import {
   deleteImageSelectionSession,
-  extractManagedImageRel,
+  getImageSelectionSession,
   getImageSelectionSessionStats,
   listImageSelectionSessions,
   saveImageSelectionSession,
@@ -52,29 +47,6 @@ function createId() {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function taskToCandidate(candidate: ImageSelectionCandidate, task: ImageTask): ImageSelectionCandidate {
-  if (task.status === "success") {
-    const first = task.data?.[0];
-    if (!first?.url && !first?.b64_json) {
-      return { ...candidate, status: "error", error: "未返回图片数据" };
-    }
-    const url = first.url || (first.b64_json ? `data:image/png;base64,${first.b64_json}` : "");
-    return {
-      ...candidate,
-      taskId: task.id,
-      status: "ready",
-      url,
-      rel: extractManagedImageRel(url),
-      revised_prompt: first.revised_prompt,
-      error: undefined,
-    };
-  }
-  if (task.status === "error") {
-    return { ...candidate, taskId: task.id, status: "error", error: task.error || "生成失败" };
-  }
-  return { ...candidate, taskId: task.id, status: "loading", error: undefined };
 }
 
 function isTextInputTarget(target: EventTarget | null) {
@@ -107,21 +79,6 @@ function thumbWidthClass(size: string) {
   if (size === "4:3") return "w-28";
   if (size === "3:4") return "w-16";
   return "w-20";
-}
-
-function countTrailingCandidateErrors(candidates: ImageSelectionCandidate[]) {
-  let count = 0;
-  for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    const candidate = candidates[index];
-    if (candidate.status === "loading") {
-      break;
-    }
-    if (candidate.status !== "error") {
-      break;
-    }
-    count += 1;
-  }
-  return count;
 }
 
 function sanitizeDownloadName(value: string) {
@@ -381,8 +338,8 @@ function ReviewStage({
 
 function ImageSelectContent() {
   const sessionsRef = useRef<ImageSelectionSession[]>([]);
-  const fillingRef = useRef(false);
   const originalPreloadRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const refreshingSessionRef = useRef(false);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const [sessions, setSessions] = useState<ImageSelectionSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -393,7 +350,6 @@ function ImageSelectContent() {
   const [queueLimit, setQueueLimit] = useState(DEFAULT_QUEUE_LIMIT);
   const [failureLimit, setFailureLimit] = useState(DEFAULT_FAILURE_LIMIT);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentImageLoading, setCurrentImageLoading] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isImmersive, setIsImmersive] = useState(false);
@@ -764,119 +720,44 @@ function ImageSelectContent() {
   }, [selectedSession]);
 
   useEffect(() => {
-    if (!selectedSession?.candidates.some((candidate) => candidate.status === "loading")) {
+    if (selectedSession?.status !== "running") {
       return;
     }
-    const poll = async () => {
-      const snapshot = sessionsRef.current.find((session) => session.id === selectedSession.id);
-      const loadingIds = snapshot?.candidates.flatMap((candidate) =>
-        candidate.status === "loading" && candidate.taskId ? [candidate.taskId] : [],
-      ) || [];
-      if (loadingIds.length === 0) {
+    let cancelled = false;
+    const refreshSession = async () => {
+      if (!selectedSessionId || refreshingSessionRef.current) {
         return;
       }
+      refreshingSessionRef.current = true;
       try {
-        const taskList = await fetchImageTasks(loadingIds);
-        if (taskList.items.length === 0 && taskList.missing_ids.length === 0) {
+        const nextSession = await getImageSelectionSession(selectedSessionId);
+        if (cancelled) {
           return;
         }
-        const taskMap = new Map(taskList.items.map((task) => [task.id, task]));
-        await updateSession(selectedSession.id, (session) => {
-          const candidates = session.candidates.map((candidate) => {
-            if (candidate.status !== "loading" || !candidate.taskId) {
-              return candidate;
-            }
-            if (taskList.missing_ids.includes(candidate.taskId)) {
-              return { ...candidate, status: "error" as const, error: "任务已丢失" };
-            }
-            const task = taskMap.get(candidate.taskId);
-            if (!task) {
-              return candidate;
-            }
-            return taskToCandidate(candidate, task);
-          });
-          const failures = countTrailingCandidateErrors(candidates);
-          const shouldPause = failures >= session.failureLimit;
-          return {
-            ...session,
-            candidates,
-            consecutiveFailures: failures,
-            status: shouldPause ? "paused" : session.status,
-            lastError: shouldPause ? "连续生成失败，已暂停选图" : session.lastError,
-            updatedAt: new Date().toISOString(),
-          };
-        });
-      } catch {
-        // transient polling errors should not stop existing submitted tasks
-      }
-    };
-    void poll();
-    const timer = window.setInterval(() => void poll(), 2000);
-    return () => window.clearInterval(timer);
-  }, [selectedSession?.id, selectedSession?.candidates, updateSession]);
-
-  useEffect(() => {
-    const fillQueue = async () => {
-      const snapshot = sessionsRef.current.find((session) => session.id === selectedSessionId);
-      if (!snapshot || snapshot.status !== "running" || fillingRef.current) {
-        return;
-      }
-      const currentStats = getImageSelectionSessionStats(snapshot);
-      const slots = Math.max(0, snapshot.queueLimit - currentStats.active);
-      if (slots === 0) {
-        return;
-      }
-      fillingRef.current = true;
-      setIsSubmitting(true);
-      try {
-        for (let index = 0; index < slots; index += 1) {
-          const now = new Date().toISOString();
-          const candidateId = createId();
-          const candidate: ImageSelectionCandidate = {
-            id: candidateId,
-            taskId: candidateId,
-            status: "loading",
-            createdAt: now,
-          };
-          await updateSession(snapshot.id, (session) => ({
-            ...session,
-            candidates: [...session.candidates, candidate],
-            updatedAt: now,
-          }));
-          try {
-            const task = await createImageGenerationTask(candidateId, snapshot.prompt, "gpt-image-2", snapshot.size);
-            await updateSession(snapshot.id, (session) => ({
-              ...session,
-              candidates: session.candidates.map((item) =>
-                item.id === candidateId ? taskToCandidate({ ...item, taskId: candidateId }, task) : item,
-              ),
-              updatedAt: new Date().toISOString(),
-            }));
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "提交生成任务失败";
-            await updateSession(snapshot.id, (session) => {
-              const candidates = session.candidates.map((item) =>
-                item.id === candidateId ? { ...item, status: "error" as const, error: message } : item,
-              );
-              const failures = countTrailingCandidateErrors(candidates);
-              return {
-                ...session,
-                candidates,
-                consecutiveFailures: failures,
-                status: failures >= session.failureLimit ? "paused" : session.status,
-                lastError: failures >= session.failureLimit ? "连续生成失败，已暂停选图" : message,
-                updatedAt: new Date().toISOString(),
-              };
-            });
-          }
+        if (!nextSession) {
+          const nextSessions = sessionsRef.current.filter((session) => session.id !== selectedSessionId);
+          sessionsRef.current = nextSessions;
+          setSessions(nextSessions);
+          setSelectedSessionId(nextSessions[0]?.id ?? null);
+          return;
         }
+        const nextSessions = [nextSession, ...sessionsRef.current.filter((session) => session.id !== nextSession.id)]
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        sessionsRef.current = nextSessions;
+        setSessions(nextSessions);
+      } catch {
+        // Backend queue refresh is best-effort; existing UI state remains usable.
       } finally {
-        fillingRef.current = false;
-        setIsSubmitting(false);
+        refreshingSessionRef.current = false;
       }
     };
-    void fillQueue();
-  }, [selectedSessionId, selectedSession?.status, selectedSession?.candidates, updateSession]);
+    void refreshSession();
+    const timer = window.setInterval(() => void refreshSession(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedSession?.status, selectedSessionId]);
 
   if (isLoading) {
     return <div className="flex min-h-[40vh] items-center justify-center"><LoaderCircle className="size-5 animate-spin text-stone-400" /></div>;
@@ -1054,7 +935,7 @@ function ImageSelectContent() {
               currentCandidate={currentCandidate}
               reviewCandidates={reviewCandidates}
               hasLoading={hasLoading}
-              isSubmitting={isSubmitting}
+              isSubmitting={selectedSession.status === "running"}
               currentImageLoading={currentImageLoading}
               onKeep={() => void decideCurrent("kept")}
               onDiscard={() => void decideCurrent("discarded")}
@@ -1076,7 +957,7 @@ function ImageSelectContent() {
             currentCandidate={currentCandidate}
             reviewCandidates={reviewCandidates}
             hasLoading={hasLoading}
-            isSubmitting={isSubmitting}
+            isSubmitting={selectedSession.status === "running"}
             immersive
             currentImageLoading={currentImageLoading}
             onKeep={() => void decideCurrent("kept")}
