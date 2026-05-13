@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, ImageIcon, LoaderCircle, Maximize2, Pause, Play, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ImageIcon, LoaderCircle, Maximize2, Pause, Play, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -274,6 +274,9 @@ function ImageSelectContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isImmersive, setIsImmersive] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [configQueueLimit, setConfigQueueLimit] = useState(DEFAULT_QUEUE_LIMIT);
+  const [configFailureLimit, setConfigFailureLimit] = useState(DEFAULT_FAILURE_LIMIT);
 
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === selectedSessionId) ?? null,
@@ -413,6 +416,32 @@ function ImageSelectContent() {
       updatedAt: new Date().toISOString(),
     }));
   }, [selectedSession, updateSession]);
+
+  const openSessionConfig = useCallback(() => {
+    if (!selectedSession) {
+      return;
+    }
+    setConfigQueueLimit(selectedSession.queueLimit);
+    setConfigFailureLimit(selectedSession.failureLimit);
+    setConfigOpen(true);
+  }, [selectedSession]);
+
+  const handleSaveSessionConfig = useCallback(async () => {
+    if (!selectedSession) {
+      return;
+    }
+    const nextQueueLimit = Math.max(1, Math.min(100, Number(configQueueLimit) || DEFAULT_QUEUE_LIMIT));
+    const nextFailureLimit = Math.max(1, Math.min(100, Number(configFailureLimit) || DEFAULT_FAILURE_LIMIT));
+    await updateSession(selectedSession.id, (session) => ({
+      ...session,
+      queueLimit: nextQueueLimit,
+      failureLimit: nextFailureLimit,
+      consecutiveFailures: Math.min(session.consecutiveFailures, nextFailureLimit),
+      updatedAt: new Date().toISOString(),
+    }));
+    setConfigOpen(false);
+    toast.success("会话配置已更新");
+  }, [configFailureLimit, configQueueLimit, selectedSession, updateSession]);
 
   const selectSession = useCallback((id: string) => {
     setSelectedSessionId(id);
@@ -732,6 +761,10 @@ function ImageSelectContent() {
                 {selectedSession.lastError ? <p className="mt-1 text-sm text-amber-700">{selectedSession.lastError}</p> : null}
               </div>
               <div className="flex gap-2">
+                <Button variant="outline" className="rounded-xl border-stone-200 bg-white" disabled={!selectedSession} onClick={openSessionConfig}>
+                  <Settings2 className="size-4" />
+                  配置会话
+                </Button>
                 <Button variant="outline" className="rounded-xl border-stone-200 bg-white" disabled={!selectedSession} onClick={() => setIsImmersive(true)}>
                   <Maximize2 className="size-4" />
                   沉浸选图
@@ -802,6 +835,48 @@ function ImageSelectContent() {
             </Button>
             <Button className="rounded-xl bg-rose-600 text-white hover:bg-rose-700" onClick={() => deleteTargetId ? void handleDeleteSession(deleteTargetId) : undefined}>
               确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={configOpen} onOpenChange={setConfigOpen}>
+        <DialogContent className="rounded-2xl p-6">
+          <DialogHeader className="gap-2">
+            <DialogTitle>配置选图会话</DialogTitle>
+            <DialogDescription className="text-sm leading-6">
+              只影响当前会话。队列长度变大后会继续补齐；变小后不会取消已提交任务，但不会再超过新上限继续补位。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-stone-700">队列长度</label>
+              <Input
+                type="number"
+                min="1"
+                max="100"
+                value={configQueueLimit}
+                onChange={(event) => setConfigQueueLimit(Math.max(1, Math.min(100, Number(event.target.value) || DEFAULT_QUEUE_LIMIT)))}
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-stone-700">连续错误暂停</label>
+              <Input
+                type="number"
+                min="1"
+                max="100"
+                value={configFailureLimit}
+                onChange={(event) => setConfigFailureLimit(Math.max(1, Math.min(100, Number(event.target.value) || DEFAULT_FAILURE_LIMIT)))}
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setConfigOpen(false)}>
+              取消
+            </Button>
+            <Button className="rounded-xl bg-stone-950 text-white" onClick={() => void handleSaveSessionConfig()}>
+              保存配置
             </Button>
           </DialogFooter>
         </DialogContent>

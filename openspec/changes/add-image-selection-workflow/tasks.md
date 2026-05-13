@@ -45,3 +45,8 @@
 - [x] 6.3 Ensure deleting the active session selects a fallback session or returns to empty state without deleting image files.
 - [x] 6.4 Add an in-app immersive review mode that fills the browser viewport without using browser fullscreen APIs.
 - [x] 6.5 Preserve keep, discard, thumbnail selection, and Escape-to-exit behavior in immersive mode.
+
+## 7. Session Configuration
+
+- [x] 7.1 Add a current-session configuration dialog for queue length and consecutive failure pause values.
+- [x] 7.2 Persist edited session limits and use them for subsequent queue fill and failure pause behavior.

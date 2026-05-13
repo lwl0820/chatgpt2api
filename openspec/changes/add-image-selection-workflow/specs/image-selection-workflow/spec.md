@@ -97,7 +97,7 @@ The system SHALL restore selection session state after page reload without autom
 - **THEN** the system SHALL be allowed to poll those existing tasks and update their terminal status without submitting additional replacement tasks until the user manually continues selection
 
 ### Requirement: Configurable session limits
-The system SHALL allow users to configure the candidate queue length and consecutive failure pause limit when creating an image selection session.
+The system SHALL allow users to configure the candidate queue length and consecutive failure pause limit when creating or editing an image selection session.
 
 #### Scenario: Create with session limits
 - **WHEN** the user starts an image selection session with valid queue length and consecutive failure pause values
@@ -106,6 +106,10 @@ The system SHALL allow users to configure the candidate queue length and consecu
 #### Scenario: Missing session limits
 - **WHEN** session limit values are missing or invalid
 - **THEN** the system SHALL use safe default values for queue length and consecutive failure pause behavior
+
+#### Scenario: Update current session limits
+- **WHEN** the user updates the queue length or consecutive failure pause value for the current selection session
+- **THEN** the system SHALL persist the new values to that session and use them for subsequent queue fill and failure pause behavior
 
 ### Requirement: Image manager selection-session filtering
 The image manager SHALL allow users with image manager access to filter images by a local image selection session's kept images.
