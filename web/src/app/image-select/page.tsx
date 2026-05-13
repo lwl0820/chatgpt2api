@@ -296,6 +296,7 @@ function ImageSelectContent() {
   const [sessions, setSessions] = useState<ImageSelectionSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [currentCandidateId, setCurrentCandidateId] = useState<string | null>(null);
+  const [hiddenCandidateId, setHiddenCandidateId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [imageSize, setImageSize] = useState("");
   const [queueLimit, setQueueLimit] = useState(DEFAULT_QUEUE_LIMIT);
@@ -315,8 +316,8 @@ function ImageSelectContent() {
   );
   const stats = selectedSession ? getImageSelectionSessionStats(selectedSession) : null;
   const readyCandidates = useMemo(
-    () => selectedSession?.candidates.filter((candidate) => candidate.status === "ready" && candidate.url) ?? [],
-    [selectedSession],
+    () => selectedSession?.candidates.filter((candidate) => candidate.status === "ready" && candidate.url && candidate.id !== hiddenCandidateId) ?? [],
+    [hiddenCandidateId, selectedSession],
   );
   const currentCandidate =
     readyCandidates.find((candidate) => candidate.id === currentCandidateId) ?? readyCandidates[0] ?? null;
@@ -326,6 +327,7 @@ function ImageSelectContent() {
   useEffect(() => {
     if (!selectedSession) {
       setCurrentCandidateId(null);
+      setHiddenCandidateId(null);
       return;
     }
     if (readyCandidates.some((candidate) => candidate.id === currentCandidateId)) {
@@ -333,6 +335,16 @@ function ImageSelectContent() {
     }
     setCurrentCandidateId(readyCandidates[0]?.id ?? null);
   }, [currentCandidateId, readyCandidates, selectedSession]);
+
+  useEffect(() => {
+    if (!hiddenCandidateId || !selectedSession) {
+      return;
+    }
+    const hiddenCandidate = selectedSession.candidates.find((candidate) => candidate.id === hiddenCandidateId);
+    if (!hiddenCandidate || hiddenCandidate.status !== "ready") {
+      setHiddenCandidateId(null);
+    }
+  }, [hiddenCandidateId, selectedSession]);
 
   const persistSession = useCallback(async (session: ImageSelectionSession) => {
     const nextSessions = [session, ...sessionsRef.current.filter((item) => item.id !== session.id)]
@@ -349,6 +361,7 @@ function ImageSelectContent() {
     if (selectedSessionId === id) {
       setSelectedSessionId(nextSessions[0]?.id ?? null);
       setCurrentCandidateId(null);
+      setHiddenCandidateId(null);
       setIsImmersive(false);
     }
     setDeleteTargetId(null);
@@ -424,6 +437,7 @@ function ImageSelectContent() {
     };
     setSelectedSessionId(session.id);
     setCurrentCandidateId(null);
+    setHiddenCandidateId(null);
     setPrompt("");
     await persistSession(session);
     toast.success("选图已开始");
@@ -481,6 +495,7 @@ function ImageSelectContent() {
   const selectSession = useCallback((id: string) => {
     setSelectedSessionId(id);
     setCurrentCandidateId(null);
+    setHiddenCandidateId(null);
     setIsImmersive(false);
   }, []);
 
@@ -488,6 +503,7 @@ function ImageSelectContent() {
     if (!selectedSession || !currentCandidate) {
       return;
     }
+    setHiddenCandidateId(currentCandidate.id);
     const now = new Date().toISOString();
     await updateSession(selectedSession.id, (session) => {
       let changed = false;
@@ -552,6 +568,7 @@ function ImageSelectContent() {
       };
     });
     if (restoredCandidateId) {
+      setHiddenCandidateId(null);
       setCurrentCandidateId(restoredCandidateId);
       toast.success("已撤销上一次选图操作");
     } else {
