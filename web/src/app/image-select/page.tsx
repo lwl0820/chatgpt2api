@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ImageIcon, LoaderCircle, Maximize2, Pause, Play, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -162,6 +162,7 @@ type ReviewStageProps = {
   onKeep: () => void;
   onDiscard: () => void;
   onSelectCandidate: (candidateId: string) => void;
+  immersiveActions?: ReactNode;
 };
 
 function ReviewStage({
@@ -175,6 +176,7 @@ function ReviewStage({
   onKeep,
   onDiscard,
   onSelectCandidate,
+  immersiveActions,
 }: ReviewStageProps) {
   if (immersive) {
     return (
@@ -189,7 +191,7 @@ function ReviewStage({
             </div>
             <div className="mt-1 max-w-[70vw] truncate text-sm font-medium">{session.prompt}</div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button className="rounded-xl bg-emerald-600 text-white hover:bg-emerald-700" disabled={!currentCandidate} onClick={onKeep}>
               <ArrowUp className="size-4" />
               保留
@@ -198,6 +200,7 @@ function ReviewStage({
               <ArrowDown className="size-4" />
               丢弃
             </Button>
+            {immersiveActions}
           </div>
         </div>
         <div className="flex min-h-0 flex-1 items-center justify-center p-3">
@@ -799,14 +802,6 @@ function ImageSelectContent() {
       </main>
       {selectedSession && isImmersive ? (
         <div className="fixed inset-0 z-[120] bg-stone-950">
-          <button
-            type="button"
-            className="absolute right-4 top-4 z-10 inline-flex size-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/20"
-            onClick={() => setIsImmersive(false)}
-            aria-label="退出沉浸选图"
-          >
-            <X className="size-5" />
-          </button>
           <ReviewStage
             session={selectedSession}
             stats={stats}
@@ -818,6 +813,36 @@ function ImageSelectContent() {
             onKeep={() => void decideCurrent("kept")}
             onDiscard={() => void decideCurrent("discarded")}
             onSelectCandidate={setCurrentCandidateId}
+            immersiveActions={(
+              <>
+                {selectedSession.status === "running" ? (
+                  <Button
+                    variant="outline"
+                    className="rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20"
+                    onClick={() => void handlePause()}
+                  >
+                    <Pause className="size-4" />
+                    暂停
+                  </Button>
+                ) : (
+                  <Button
+                    className="rounded-xl bg-white text-stone-950 hover:bg-stone-100"
+                    onClick={() => void handleContinue()}
+                  >
+                    <Play className="size-4" />
+                    继续
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  className="rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20"
+                  onClick={() => setIsImmersive(false)}
+                >
+                  <X className="size-4" />
+                  退出
+                </Button>
+              </>
+            )}
           />
         </div>
       ) : null}
