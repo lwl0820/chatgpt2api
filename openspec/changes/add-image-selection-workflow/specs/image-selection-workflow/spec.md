@@ -52,6 +52,10 @@ The system SHALL automatically skip failed candidate generation tasks and contin
 - **WHEN** candidate generation failures reach the selection session's configured consecutive failure limit
 - **THEN** the system SHALL pause the selection session and show an error state requiring the user to manually continue
 
+#### Scenario: Out-of-order failures do not pause selection
+- **WHEN** failed candidate tasks complete after later successful tasks but those failures are not consecutive at the tail of candidate creation order
+- **THEN** the system SHALL NOT pause the selection session solely because the failures were observed consecutively by polling
+
 ### Requirement: Selection delete is non-destructive
 The system SHALL treat discarding a candidate as a selection-session state change and MUST NOT delete the underlying local image file.
 
@@ -96,8 +100,8 @@ The system SHALL restore selection session state after page reload without autom
 - **WHEN** a restored selection session contains loading candidates with task IDs
 - **THEN** the system SHALL be allowed to poll those existing tasks and update their terminal status without submitting additional replacement tasks until the user manually continues selection
 
-### Requirement: Configurable session limits
-The system SHALL allow users to configure the candidate queue length and consecutive failure pause limit when creating or editing an image selection session.
+### Requirement: Configurable selection session
+The system SHALL allow users to configure the session title, candidate queue length, and consecutive failure pause limit when creating or editing an image selection session.
 
 #### Scenario: Create with session limits
 - **WHEN** the user starts an image selection session with valid queue length and consecutive failure pause values
@@ -107,9 +111,9 @@ The system SHALL allow users to configure the candidate queue length and consecu
 - **WHEN** session limit values are missing or invalid
 - **THEN** the system SHALL use safe default values for queue length and consecutive failure pause behavior
 
-#### Scenario: Update current session limits
-- **WHEN** the user updates the queue length or consecutive failure pause value for the current selection session
-- **THEN** the system SHALL persist the new values to that session and use them for subsequent queue fill and failure pause behavior
+#### Scenario: Update current session configuration
+- **WHEN** the user updates the title, queue length, or consecutive failure pause value for the current selection session
+- **THEN** the system SHALL persist the new values to that session and use the updated limits for subsequent queue fill and failure pause behavior
 
 ### Requirement: Image manager selection-session filtering
 The image manager SHALL allow users with image manager access to filter images by a local image selection session's kept images.

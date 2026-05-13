@@ -50,3 +50,5 @@
 
 - [x] 7.1 Add a current-session configuration dialog for queue length and consecutive failure pause values.
 - [x] 7.2 Persist edited session limits and use them for subsequent queue fill and failure pause behavior.
+- [x] 7.3 Allow editing the current selection session title from the configuration dialog.
+- [x] 7.4 Calculate consecutive failures from the tail of candidate creation order instead of task completion order.

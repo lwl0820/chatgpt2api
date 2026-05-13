@@ -106,6 +106,21 @@ function thumbWidthClass(size: string) {
   return "w-20";
 }
 
+function countTrailingCandidateErrors(candidates: ImageSelectionCandidate[]) {
+  let count = 0;
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const candidate = candidates[index];
+    if (candidate.status === "loading") {
+      break;
+    }
+    if (candidate.status !== "error") {
+      break;
+    }
+    count += 1;
+  }
+  return count;
+}
+
 type CandidateStripProps = {
   candidates: ImageSelectionCandidate[];
   currentCandidateId?: string;
@@ -278,6 +293,7 @@ function ImageSelectContent() {
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isImmersive, setIsImmersive] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [configTitle, setConfigTitle] = useState("");
   const [configQueueLimit, setConfigQueueLimit] = useState(DEFAULT_QUEUE_LIMIT);
   const [configFailureLimit, setConfigFailureLimit] = useState(DEFAULT_FAILURE_LIMIT);
 
@@ -424,6 +440,7 @@ function ImageSelectContent() {
     if (!selectedSession) {
       return;
     }
+    setConfigTitle(selectedSession.title);
     setConfigQueueLimit(selectedSession.queueLimit);
     setConfigFailureLimit(selectedSession.failureLimit);
     setConfigOpen(true);
@@ -433,10 +450,12 @@ function ImageSelectContent() {
     if (!selectedSession) {
       return;
     }
+    const nextTitle = configTitle.trim() || buildImageSelectionTitle(selectedSession.prompt);
     const nextQueueLimit = Math.max(1, Math.min(100, Number(configQueueLimit) || DEFAULT_QUEUE_LIMIT));
     const nextFailureLimit = Math.max(1, Math.min(100, Number(configFailureLimit) || DEFAULT_FAILURE_LIMIT));
     await updateSession(selectedSession.id, (session) => ({
       ...session,
+      title: nextTitle,
       queueLimit: nextQueueLimit,
       failureLimit: nextFailureLimit,
       consecutiveFailures: Math.min(session.consecutiveFailures, nextFailureLimit),
@@ -444,7 +463,7 @@ function ImageSelectContent() {
     }));
     setConfigOpen(false);
     toast.success("会话配置已更新");
-  }, [configFailureLimit, configQueueLimit, selectedSession, updateSession]);
+  }, [configFailureLimit, configQueueLimit, configTitle, selectedSession, updateSession]);
 
   const selectSession = useCallback((id: string) => {
     setSelectedSessionId(id);
@@ -514,27 +533,20 @@ function ImageSelectContent() {
         }
         const taskMap = new Map(taskList.items.map((task) => [task.id, task]));
         await updateSession(selectedSession.id, (session) => {
-          let failures = session.consecutiveFailures;
           const candidates = session.candidates.map((candidate) => {
             if (candidate.status !== "loading" || !candidate.taskId) {
               return candidate;
             }
             if (taskList.missing_ids.includes(candidate.taskId)) {
-              failures += 1;
               return { ...candidate, status: "error" as const, error: "任务已丢失" };
             }
             const task = taskMap.get(candidate.taskId);
             if (!task) {
               return candidate;
             }
-            const nextCandidate = taskToCandidate(candidate, task);
-            if (nextCandidate.status === "error") {
-              failures += 1;
-            } else if (nextCandidate.status === "ready") {
-              failures = 0;
-            }
-            return nextCandidate;
+            return taskToCandidate(candidate, task);
           });
+          const failures = countTrailingCandidateErrors(candidates);
           const shouldPause = failures >= session.failureLimit;
           return {
             ...session,
@@ -594,12 +606,13 @@ function ImageSelectContent() {
           } catch (error) {
             const message = error instanceof Error ? error.message : "提交生成任务失败";
             await updateSession(snapshot.id, (session) => {
-              const failures = session.consecutiveFailures + 1;
+              const candidates = session.candidates.map((item) =>
+                item.id === candidateId ? { ...item, status: "error" as const, error: message } : item,
+              );
+              const failures = countTrailingCandidateErrors(candidates);
               return {
                 ...session,
-                candidates: session.candidates.map((item) =>
-                  item.id === candidateId ? { ...item, status: "error", error: message } : item,
-                ),
+                candidates,
                 consecutiveFailures: failures,
                 status: failures >= session.failureLimit ? "paused" : session.status,
                 lastError: failures >= session.failureLimit ? "连续生成失败，已暂停选图" : message,
@@ -869,10 +882,19 @@ function ImageSelectContent() {
           <DialogHeader className="gap-2">
             <DialogTitle>配置选图会话</DialogTitle>
             <DialogDescription className="text-sm leading-6">
-              只影响当前会话。队列长度变大后会继续补齐；变小后不会取消已提交任务，但不会再超过新上限继续补位。
+              可修改当前会话标题和运行参数。队列长度变大后会继续补齐；变小后不会取消已提交任务，但不会再超过新上限继续补位。
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <div className="space-y-2 sm:col-span-2">
+              <label className="text-sm font-medium text-stone-700">会话标题</label>
+              <Input
+                value={configTitle}
+                onChange={(event) => setConfigTitle(event.target.value)}
+                placeholder="输入会话标题"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+            </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-stone-700">队列长度</label>
               <Input
