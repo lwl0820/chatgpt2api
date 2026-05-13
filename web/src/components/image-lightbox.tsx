@@ -54,15 +54,21 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function getTouchDistance(touches: TouchList) {
-  const first = touches[0];
-  const second = touches[1];
+function getTouchDistance(touches: React.TouchList | TouchList) {
+  const first = touches.item(0);
+  const second = touches.item(1);
+  if (!first || !second) {
+    return 0;
+  }
   return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
 }
 
-function getTouchCenter(touches: TouchList) {
-  const first = touches[0];
-  const second = touches[1];
+function getTouchCenter(touches: React.TouchList | TouchList) {
+  const first = touches.item(0);
+  const second = touches.item(1);
+  if (!first || !second) {
+    return { x: 0, y: 0 };
+  }
   return {
     x: (first.clientX + second.clientX) / 2,
     y: (first.clientY + second.clientY) / 2,

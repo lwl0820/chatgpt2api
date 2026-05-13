@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { History, LoaderCircle, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, History, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ImageComposer } from "@/app/image/components/image-composer";
@@ -202,6 +202,10 @@ function sortImageConversations(conversations: ImageConversation[]) {
   return [...conversations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+function isScrolledToBottom(element: HTMLElement) {
+  return Math.ceil(element.scrollTop + element.clientHeight) >= element.scrollHeight;
+}
+
 function deriveTurnStatus(turn: ImageTurn): Pick<ImageTurn, "status" | "error"> {
   const loadingCount = turn.images.filter((image) => image.status === "loading").length;
   const failedCount = turn.images.filter((image) => image.status === "error").length;
@@ -357,6 +361,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const [lightboxImages, setLightboxImages] = useState<ImageLightboxItem[]>([]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [scrollToBottomRequest, setScrollToBottomRequest] = useState(0);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<
     | { type: "one"; id: string }
     | { type: "prompt"; conversationId: string; turnId: string }
@@ -474,16 +480,38 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     };
   }, [isAdmin, loadQuota]);
 
+  const updateScrollToBottomVisibility = useCallback(() => {
+    const viewport = resultsViewportRef.current;
+    setShowScrollToBottom(Boolean(viewport && !isScrolledToBottom(viewport)));
+  }, []);
+
+  const scrollResultsToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const viewport = resultsViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+    viewport.scrollTo({
+      top: viewport.scrollHeight,
+      behavior,
+    });
+    window.requestAnimationFrame(updateScrollToBottomVisibility);
+  }, [updateScrollToBottomVisibility]);
+
+  const requestScrollResultsToBottom = useCallback(() => {
+    setScrollToBottomRequest((value) => value + 1);
+  }, []);
+
   useEffect(() => {
-    if (!selectedConversation) {
+    if (scrollToBottomRequest === 0) {
       return;
     }
 
-    resultsViewportRef.current?.scrollTo({
-      top: resultsViewportRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [selectedConversation?.updatedAt, selectedConversation?.turns.length, selectedConversation]);
+    scrollResultsToBottom();
+  }, [scrollResultsToBottom, scrollToBottomRequest]);
+
+  useEffect(() => {
+    updateScrollToBottomVisibility();
+  }, [selectedConversation, updateScrollToBottomVisibility]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1003,10 +1031,11 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
       setSelectedConversationId(conversationId);
       await persistConversation(nextConversation);
+      requestScrollResultsToBottom();
       void runConversationQueue(conversationId);
       toast.success("已加入重新生成队列");
     },
-    [runConversationQueue],
+    [requestScrollResultsToBottom, runConversationQueue],
   );
 
   const handleRetryImage = useCallback(
@@ -1049,9 +1078,10 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
       setSelectedConversationId(conversationId);
       await persistConversation(nextConversation);
+      requestScrollResultsToBottom();
       void runConversationQueue(conversationId);
     },
-    [runConversationQueue],
+    [requestScrollResultsToBottom, runConversationQueue],
   );
 
   useEffect(() => {
@@ -1116,6 +1146,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     clearComposerInputs();
 
     await persistConversation(baseConversation);
+    requestScrollResultsToBottom();
     void runConversationQueue(conversationId);
 
     const targetStats = getImageConversationStats(baseConversation);
@@ -1203,21 +1234,35 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             </Button>
           </div>
 
-          <div
-            ref={resultsViewportRef}
-            className="hide-scrollbar min-h-0 flex-1 overscroll-contain overflow-y-auto px-1 py-2 sm:px-4 sm:py-4"
-          >
-            <ImageResults
-              selectedConversation={selectedConversation}
-              onOpenLightbox={openLightbox}
-              onContinueEdit={handleContinueEdit}
-              onDeletePrompt={openDeletePromptConfirm}
-              onDeleteResults={openDeleteResultsConfirm}
-              onReuseTurnConfig={handleReuseTurnConfig}
-              onRegenerateTurn={handleRegenerateTurn}
-              onRetryImage={handleRetryImage}
-              formatConversationTime={formatConversationTime}
-            />
+          <div className="relative min-h-0 flex-1">
+            <div
+              ref={resultsViewportRef}
+              className="hide-scrollbar h-full overscroll-contain overflow-y-auto px-1 py-2 sm:px-4 sm:py-4"
+              onScroll={updateScrollToBottomVisibility}
+            >
+              <ImageResults
+                selectedConversation={selectedConversation}
+                onOpenLightbox={openLightbox}
+                onContinueEdit={handleContinueEdit}
+                onDeletePrompt={openDeletePromptConfirm}
+                onDeleteResults={openDeleteResultsConfirm}
+                onReuseTurnConfig={handleReuseTurnConfig}
+                onRegenerateTurn={handleRegenerateTurn}
+                onRetryImage={handleRetryImage}
+                formatConversationTime={formatConversationTime}
+              />
+            </div>
+            {showScrollToBottom ? (
+              <Button
+                type="button"
+                size="sm"
+                className="absolute right-3 bottom-3 rounded-full bg-stone-950/95 px-3 text-white shadow-lg shadow-stone-900/20 backdrop-blur hover:bg-stone-800 sm:right-6 sm:bottom-5"
+                onClick={() => scrollResultsToBottom()}
+              >
+                <ArrowDown className="mr-1.5 size-4" />
+                回到底部
+              </Button>
+            ) : null}
           </div>
 
           <ImageComposer

@@ -15,6 +15,11 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { deleteImageTag, deleteManagedImages, downloadImages, downloadSingleImage, fetchImageTags, fetchManagedImages, setImageTags, type ManagedImage } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
+import {
+  getKeptImageSelectionPaths,
+  listImageSelectionSessions,
+  type ImageSelectionSession,
+} from "@/store/image-selection-sessions";
 
 const LONG_PRESS_MS = 800;
 
@@ -75,10 +80,23 @@ function ImageManagerContent() {
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [deleteMode, setDeleteMode] = useState<"selected" | "filtered" | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [selectionSessions, setSelectionSessions] = useState<ImageSelectionSession[]>([]);
+  const [selectedSelectionSessionId, setSelectedSelectionSessionId] = useState("");
 
-  const filteredItems = selectedTags.length > 0
-    ? items.filter((item) => selectedTags.every((t) => (item.tags ?? []).includes(t)))
+  const selectedSelectionSession = useMemo(
+    () => selectionSessions.find((session) => session.id === selectedSelectionSessionId) ?? null,
+    [selectedSelectionSessionId, selectionSessions],
+  );
+  const selectionPathSet = useMemo(
+    () => new Set(getKeptImageSelectionPaths(selectedSelectionSession)),
+    [selectedSelectionSession],
+  );
+  const sessionFilteredItems = selectedSelectionSession
+    ? items.filter((item) => selectionPathSet.has(item.rel))
     : items;
+  const filteredItems = selectedTags.length > 0
+    ? sessionFilteredItems.filter((item) => selectedTags.every((t) => (item.tags ?? []).includes(t)))
+    : sessionFilteredItems;
 
   const lightboxImages = filteredItems.map((item) => ({
     id: item.name,
@@ -102,8 +120,11 @@ function ImageManagerContent() {
         fetchManagedImages({ start_date: startDate, end_date: endDate }),
         fetchImageTags(),
       ]);
+      const sessions = await listImageSelectionSessions();
       setItems(data.items);
       setAllTags(tagsData.tags);
+      setSelectionSessions(sessions);
+      setSelectedSelectionSessionId((current) => sessions.some((session) => session.id === current) ? current : "");
       setSelectedPaths((current) => current.filter((path) => data.items.some((item) => imageKey(item) === path)));
       setPage(1);
     } catch (error) {
@@ -211,6 +232,7 @@ function ImageManagerContent() {
     setStartDate("");
     setEndDate("");
     setSelectedTags([]);
+    setSelectedSelectionSessionId("");
   };
 
   const togglePaths = (paths: string[], checked: boolean) => {
@@ -278,6 +300,45 @@ function ImageManagerContent() {
         </div>
       </div>
 
+      {selectionSessions.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/80 bg-white/80 px-4 py-3 shadow-sm">
+          <span className="text-xs font-medium text-stone-500">
+            <ImageIcon className="mr-1 inline size-3.5" />
+            选图会话：
+          </span>
+          <select
+            value={selectedSelectionSessionId}
+            onChange={(event) => {
+              setSelectedSelectionSessionId(event.target.value);
+              setPage(1);
+              setSelectedPaths([]);
+            }}
+            className="h-9 rounded-xl border border-stone-200 bg-white px-3 text-sm text-stone-700 outline-none transition focus:border-stone-400"
+          >
+            <option value="">全部图片</option>
+            {selectionSessions.map((session) => (
+              <option key={session.id} value={session.id}>
+                {session.title || session.prompt || "未命名选图"}（保留 {getKeptImageSelectionPaths(session).length}）
+              </option>
+            ))}
+          </select>
+          {selectedSelectionSession ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedSelectionSessionId("");
+                setSelectedPaths([]);
+              }}
+            >
+              <Badge variant="secondary" className="cursor-pointer rounded-md">
+                <X className="mr-0.5 size-3" />
+                清除选图筛选
+              </Badge>
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       {allTags.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-stone-500">
@@ -332,7 +393,7 @@ function ImageManagerContent() {
             <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600">
               <ImageIcon className="size-4" />
               共 {filteredItems.length} 张
-              {selectedTags.length > 0 ? <span className="text-stone-400">（筛选自 {items.length} 张）</span> : null}
+              {selectedTags.length > 0 || selectedSelectionSession ? <span className="text-stone-400">（筛选自 {items.length} 张）</span> : null}
               <label className="flex items-center gap-2">
                 <Checkbox checked={currentPageSelected} onCheckedChange={(checked) => togglePaths(currentRows.map(imageKey), Boolean(checked))} />
                 本页全选

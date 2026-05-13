@@ -195,6 +195,13 @@ class ConfigStore:
             return 3
 
     @property
+    def image_selection_queue_size(self) -> int:
+        try:
+            return max(1, min(100, int(self.data.get("image_selection_queue_size", 6))))
+        except (TypeError, ValueError):
+            return 6
+
+    @property
     def auto_remove_invalid_accounts(self) -> bool:
         value = self.data.get("auto_remove_invalid_accounts", False)
         if isinstance(value, str):
@@ -278,6 +285,7 @@ class ConfigStore:
         data["image_retention_days"] = self.image_retention_days
         data["image_poll_timeout_secs"] = self.image_poll_timeout_secs
         data["image_account_concurrency"] = self.image_account_concurrency
+        data["image_selection_queue_size"] = self.image_selection_queue_size
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
         data["auto_remove_rate_limited_accounts"] = self.auto_remove_rate_limited_accounts
         data["log_levels"] = self.log_levels
