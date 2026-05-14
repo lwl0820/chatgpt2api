@@ -5,6 +5,7 @@ import {
   fetchBackendSession,
   fetchBackendSessions,
   saveBackendSession,
+  streamBackendSession,
   type BackendSessionKind,
 } from "@/lib/api";
 
@@ -186,6 +187,21 @@ export async function getImageSelectionSession(id: string): Promise<ImageSelecti
   } catch {
     return null;
   }
+}
+
+export async function streamImageSelectionSession(
+  id: string,
+  options: {
+    signal: AbortSignal;
+    onSession: (session: ImageSelectionSession) => void;
+    onDeleted?: (id: string) => void;
+  },
+): Promise<void> {
+  await streamBackendSession<ImageSelectionSession & Record<string, unknown>>(IMAGE_SELECTION_SESSION_KIND, id, {
+    signal: options.signal,
+    onSession: (session) => options.onSession(normalizeImageSelectionSession(session)),
+    onDeleted: options.onDeleted,
+  });
 }
 
 export async function saveImageSelectionSession(session: ImageSelectionSession): Promise<void> {

@@ -130,6 +130,34 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
         self.assertEqual(session["candidates"][0]["error"], "boom")
         self.assertEqual(len(self.task_service.submitted), 0)
 
+    def test_worker_does_not_overwrite_user_decisions_from_stale_snapshot(self):
+        stale = self.save_selection({
+            "id": "session-1",
+            "status": "running",
+            "prompt": "cat",
+            "queueLimit": 2,
+            "failureLimit": 5,
+            "candidates": [
+                {"id": "candidate-1", "taskId": "task-1", "status": "ready", "url": "/images/old.png", "createdAt": "now"},
+                {"id": "candidate-2", "taskId": "task-2", "status": "loading", "createdAt": "now"},
+            ],
+        })
+        self.save_selection({
+            **stale,
+            "candidates": [
+                {"id": "candidate-1", "taskId": "task-1", "status": "discarded", "url": "/images/old.png", "createdAt": "now"},
+                {"id": "candidate-2", "taskId": "task-2", "status": "loading", "createdAt": "now"},
+            ],
+        })
+
+        updated = self.service._save_candidates("alice", stale, [
+            {"id": "candidate-1", "taskId": "task-1", "status": "ready", "url": "/images/old.png", "createdAt": "now"},
+            {"id": "candidate-2", "taskId": "task-2", "status": "error", "error": "boom", "createdAt": "now"},
+        ])
+
+        self.assertEqual(updated["candidates"][0]["status"], "discarded")
+        self.assertEqual(updated["candidates"][1]["status"], "error")
+
 
 if __name__ == "__main__":
     unittest.main()

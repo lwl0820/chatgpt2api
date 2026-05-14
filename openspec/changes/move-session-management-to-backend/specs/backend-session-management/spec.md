@@ -63,16 +63,38 @@ The system SHALL continue filling running image-selection session queues and syn
 - **WHEN** backend queue processing observes consecutive candidate errors greater than or equal to the session failure limit
 - **THEN** the backend SHALL pause the image-selection session and persist the latest error state
 
-### Requirement: Frontend refresh remains bounded
+### Requirement: Frontend updates remain bounded
 The frontend SHALL avoid per-candidate image-task polling for backend-managed image-selection sessions.
 
 #### Scenario: Running session has many loading candidates
 - **WHEN** the selected image-selection session is running with many candidates
-- **THEN** the frontend SHALL refresh the selected backend session document without polling `/api/image-tasks` for each loading candidate
+- **THEN** the frontend SHALL receive selected-session updates from the backend without polling `/api/image-tasks` for each loading candidate
 
-#### Scenario: Session refresh is still in flight
-- **WHEN** a scheduled selected-session refresh fires while a previous refresh has not completed
-- **THEN** the frontend SHALL skip the new refresh request rather than opening an overlapping connection
+#### Scenario: Stream reconnects after interruption
+- **WHEN** the selected-session event stream is interrupted
+- **THEN** the frontend SHALL reconnect to a single selected-session stream rather than opening overlapping connections
+
+### Requirement: Selected session updates are pushed
+The system SHALL push selected image-selection session updates to the frontend so stale polling responses do not overwrite user decisions.
+
+#### Scenario: Backend session changes while selected
+- **WHEN** the selected image-selection session is saved by a user action or backend worker
+- **THEN** the backend SHALL publish the latest session document to subscribers of that session
+
+#### Scenario: User decision is saved optimistically
+- **WHEN** the user keeps or discards a candidate while subscribed to the session stream
+- **THEN** the frontend SHALL not apply an older streamed session snapshot over the newer local decision
+
+#### Scenario: Selected session is deleted
+- **WHEN** the selected image-selection session is deleted
+- **THEN** the backend SHALL publish a delete event and the frontend SHALL remove that session from its local view
+
+### Requirement: Worker preserves candidate decisions
+The backend queue worker SHALL preserve user decisions when saving task reconciliation updates.
+
+#### Scenario: Candidate was discarded while worker processed an older snapshot
+- **WHEN** the worker saves updates based on a snapshot where a candidate was ready but the latest persisted session marks that candidate as discarded
+- **THEN** the saved session SHALL keep that candidate discarded while applying other task-result updates
 
 ### Requirement: Development image paths resolve through backend proxy
 The development frontend SHALL proxy backend image asset paths so persisted same-origin URLs work while running Next and FastAPI on different local ports.

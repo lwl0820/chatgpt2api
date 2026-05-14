@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import queue
 import threading
 import uuid
 from datetime import datetime
@@ -39,11 +40,16 @@ def _session_key(owner_id: str, kind: str, session_id: str) -> str:
     return f"{owner_id}:{kind}:{session_id}"
 
 
+def session_timestamp(value: object) -> float:
+    return _timestamp(value)
+
+
 class SessionService:
     def __init__(self, path: Path):
         self.path = path
         self._lock = threading.RLock()
         self._sessions: dict[str, dict[str, Any]] = {}
+        self._subscribers: dict[str, list[queue.Queue[dict[str, Any]]]] = {}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
             self._sessions = self._load_locked()
@@ -74,7 +80,9 @@ class SessionService:
         with self._lock:
             self._sessions[_session_key(owner, session["kind"], session["id"])] = session
             self._save_locked()
-            return self._public_session(session)
+            item = self._public_session(session)
+        self._publish(owner, session["kind"], session["id"], {"event": "session", "item": item})
+        return item
 
     def delete_session(self, identity: dict[str, object], kind: str, session_id: str) -> bool:
         owner = _owner_id(identity)
@@ -84,7 +92,9 @@ class SessionService:
             removed = self._sessions.pop(_session_key(owner, normalized_kind, normalized_id), None) is not None
             if removed:
                 self._save_locked()
-            return removed
+        if removed:
+            self._publish(owner, normalized_kind, normalized_id, {"event": "deleted", "id": normalized_id})
+        return removed
 
     def list_all_sessions(self, kind: str) -> list[dict[str, Any]]:
         normalized_kind = self._normalize_kind(kind)
@@ -101,7 +111,44 @@ class SessionService:
         with self._lock:
             self._sessions[_session_key(owner, session["kind"], session["id"])] = session
             self._save_locked()
-            return self._public_session(session)
+            item = self._public_session(session)
+        self._publish(owner, session["kind"], session["id"], {"event": "session", "item": item})
+        return item
+
+    def subscribe(self, owner_id: str, kind: str, session_id: str) -> queue.Queue[dict[str, Any]]:
+        owner = _clean(owner_id) or "anonymous"
+        normalized_kind = self._normalize_kind(kind)
+        normalized_id = self._normalize_id(session_id, allow_generate=False)
+        subscriber: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=20)
+        key = _session_key(owner, normalized_kind, normalized_id)
+        with self._lock:
+            self._subscribers.setdefault(key, []).append(subscriber)
+        return subscriber
+
+    def unsubscribe(self, owner_id: str, kind: str, session_id: str, subscriber: queue.Queue[dict[str, Any]]) -> None:
+        owner = _clean(owner_id) or "anonymous"
+        normalized_kind = self._normalize_kind(kind)
+        normalized_id = self._normalize_id(session_id, allow_generate=False)
+        key = _session_key(owner, normalized_kind, normalized_id)
+        with self._lock:
+            subscribers = self._subscribers.get(key)
+            if not subscribers:
+                return
+            self._subscribers[key] = [item for item in subscribers if item is not subscriber]
+            if not self._subscribers[key]:
+                self._subscribers.pop(key, None)
+
+    def _publish(self, owner_id: str, kind: str, session_id: str, event: dict[str, Any]) -> None:
+        key = _session_key(owner_id, kind, session_id)
+        with self._lock:
+            subscribers = list(self._subscribers.get(key, []))
+        for subscriber in subscribers:
+            try:
+                if subscriber.full():
+                    subscriber.get_nowait()
+                subscriber.put_nowait(dict(event))
+            except Exception:
+                pass
 
     def _normalize_session(self, owner: str, kind: str, item: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(item, dict):

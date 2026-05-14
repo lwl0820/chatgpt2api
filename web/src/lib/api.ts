@@ -1,4 +1,5 @@
 import { httpRequest, request } from "@/lib/request";
+import { getStoredAuthKey } from "@/store/auth";
 
 export type AccountType = string;
 export type AccountStatus = "正常" | "限流" | "异常" | "禁用";
@@ -191,6 +192,12 @@ type BackendSessionListResponse<T> = {
 
 type BackendSessionItemResponse<T> = {
   item: T;
+};
+
+type BackendSessionStreamOptions<T> = {
+  signal: AbortSignal;
+  onSession: (item: T) => void;
+  onDeleted?: (id: string) => void;
 };
 
 export type LoginResponse = {
@@ -411,6 +418,52 @@ export async function deleteBackendSession(kind: BackendSessionKind, id: string)
   return httpRequest<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+}
+
+export async function streamBackendSession<T>(kind: BackendSessionKind, id: string, options: BackendSessionStreamOptions<T>) {
+  const authKey = await getStoredAuthKey();
+  const baseURL = String(request.defaults.baseURL || "").replace(/\/$/, "");
+  const response = await fetch(`${baseURL}/api/sessions/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/events`, {
+    headers: authKey ? { Authorization: `Bearer ${authKey}` } : undefined,
+    signal: options.signal,
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`请求失败 (${response.status || 500})`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const handleChunk = (chunk: string) => {
+    buffer += chunk;
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() || "";
+    for (const part of parts) {
+      const lines = part.split("\n");
+      const event = lines.find((line) => line.startsWith("event:"))?.slice("event:".length).trim() || "message";
+      const data = lines
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice("data:".length).trimStart())
+        .join("\n");
+      if (!data) {
+        continue;
+      }
+      const payload = JSON.parse(data);
+      if (event === "session") {
+        options.onSession(payload as T);
+      } else if (event === "deleted") {
+        options.onDeleted?.(String(payload.id || ""));
+      }
+    }
+  };
+
+  while (!options.signal.aborted) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    handleChunk(decoder.decode(value, { stream: true }));
+  }
 }
 
 export async function fetchSettingsConfig() {

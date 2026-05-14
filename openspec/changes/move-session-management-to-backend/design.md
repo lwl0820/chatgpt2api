@@ -56,6 +56,14 @@ Because frontend storage is browser-local, sessions can disappear across browser
 
    Backend-generated selection candidates may store same-origin image paths such as `/images/...`, which are correct in production when FastAPI serves the exported frontend and image assets from the same origin. In local development, Next runs on port 3000 and FastAPI on port 8000, so Next should proxy `/images/*` and `/image-thumbnails/*` to the backend rather than persisting development-only absolute URLs.
 
+9. Push selected session state to the frontend with a server event stream.
+
+   Polling the selected session can race with optimistic user decisions and produce stale UI snapshots. The backend should publish session changes after every session save/delete, and the selected image-selection UI should subscribe with an authenticated fetch stream. User actions remain regular HTTP mutations, while the stream delivers authoritative backend updates.
+
+10. Preserve user decisions when backend workers save stale session snapshots.
+
+   The queue worker may start processing from a session snapshot taken before the user kept or discarded a candidate. Before saving, worker updates must merge with the latest persisted session and preserve `kept` / `discarded` candidates so background task reconciliation cannot revert user decisions.
+
 ## Risks / Trade-offs
 
 - Existing frontend-local sessions disappear from the UI -> This is intentional for this change; communicate by treating backend session lists as authoritative and empty when no server sessions exist.
@@ -64,6 +72,8 @@ Because frontend storage is browser-local, sessions can disappear across browser
 - Backend queue worker may race with frontend user decisions -> Keep worker updates narrow to loading/error/new-candidate fields and preserve kept/discarded decisions when recalculating queue state.
 - Large queues can overload the browser if the frontend polls task status per candidate -> Remove frontend task polling and refresh only the current backend session with an in-flight guard.
 - Development image URLs can point at the Next dev server instead of FastAPI -> Add development-only rewrites for image asset routes while keeping production same-origin behavior.
+- Session polling can apply stale snapshots over optimistic user decisions -> Replace selected-session polling with a backend event stream and ignore older snapshots.
+- Worker snapshots can overwrite user decisions -> Merge worker candidate updates into the latest persisted session and preserve kept/discarded candidates.
 - Storage corruption affects all clients for a user -> Keep writes serialized in the backend service and validate session documents before persistence.
 - Backend persistence format may need future migration -> Include document `kind` and timestamps so future storage migrations can distinguish conversation and selection-session records.
 
@@ -73,10 +83,12 @@ Because frontend storage is browser-local, sessions can disappear across browser
 2. Add frontend API client methods for session CRUD.
 3. Update image conversation and selection-session stores to load and persist via backend APIs.
 4. Add a backend image-selection queue worker that starts and stops with the app lifespan.
-5. Remove frontend-owned queue filling and frontend image-task polling; refresh only the selected backend session for UI updates.
+5. Remove frontend-owned queue filling and frontend image-task polling; subscribe to the selected backend session for UI updates.
 6. Add development-only proxy rewrites for image and thumbnail asset paths.
-7. Stop reading existing `localforage` sessions for image conversations and image-selection sessions.
-8. Leave old local data untouched but unused; no import marker or cleanup workflow is required.
+7. Add session event publishing and subscribe to the selected image-selection session from the frontend.
+8. Merge worker candidate updates with the latest session state before saving.
+9. Stop reading existing `localforage` sessions for image conversations and image-selection sessions.
+10. Leave old local data untouched but unused; no import marker or cleanup workflow is required.
 
 ## Open Questions
 

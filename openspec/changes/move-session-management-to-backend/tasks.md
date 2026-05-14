@@ -44,3 +44,11 @@
 - [x] 7.2 Refresh only the selected backend image-selection session while it is running.
 - [x] 7.3 Prevent overlapping selected-session refresh requests from accumulating in the browser.
 - [x] 7.4 Add development-only Next rewrites for `/images/*` and `/image-thumbnails/*` backend asset paths.
+
+## 8. Event Stream Synchronization
+
+- [x] 8.1 Publish session save and delete events from the backend session service.
+- [x] 8.2 Add an authenticated selected-session event stream endpoint.
+- [x] 8.3 Subscribe to selected image-selection session events from the frontend instead of polling.
+- [x] 8.4 Ignore stale streamed session snapshots when local state is newer or a save is in flight.
+- [x] 8.5 Preserve kept/discarded candidate decisions when the backend worker saves reconciled task updates.

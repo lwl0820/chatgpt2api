@@ -47,6 +47,24 @@ class SessionServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.save_session(self.alice, "invalid", {"title": "Bad"})
 
+    def test_save_and_delete_publish_session_events(self):
+        subscriber = self.service.subscribe("alice", SESSION_KIND_IMAGE_CONVERSATION, "session-1")
+
+        self.service.save_session(
+            self.alice,
+            SESSION_KIND_IMAGE_CONVERSATION,
+            {"id": "session-1", "title": "Cat", "turns": []},
+        )
+        saved_event = subscriber.get_nowait()
+        self.assertEqual(saved_event["event"], "session")
+        self.assertEqual(saved_event["item"]["id"], "session-1")
+
+        self.service.delete_session(self.alice, SESSION_KIND_IMAGE_CONVERSATION, "session-1")
+        deleted_event = subscriber.get_nowait()
+        self.assertEqual(deleted_event, {"event": "deleted", "id": "session-1"})
+
+        self.service.unsubscribe("alice", SESSION_KIND_IMAGE_CONVERSATION, "session-1", subscriber)
+
 
 if __name__ == "__main__":
     unittest.main()

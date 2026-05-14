@@ -197,14 +197,16 @@ class ImageSelectionQueueService:
         last_error: str | None = None,
     ) -> dict[str, Any]:
         timestamp = now or _now_iso()
+        latest = session_service.get_session({"id": owner_id}, SESSION_KIND_IMAGE_SELECTION, _clean(session.get("id"))) or session
+        candidates = self._merge_candidates(latest, candidates)
         failures = _count_trailing_errors(candidates)
-        failure_limit = _int(session.get("failureLimit"), 5)
+        failure_limit = _int(latest.get("failureLimit"), 5)
         should_pause = failures >= failure_limit
         next_session = {
-            **session,
+            **latest,
             "candidates": candidates,
             "consecutiveFailures": failures,
-            "status": "paused" if should_pause else session.get("status", "running"),
+            "status": "paused" if should_pause else latest.get("status", "running"),
             "updatedAt": timestamp,
         }
         if should_pause:
@@ -212,6 +214,28 @@ class ImageSelectionQueueService:
         elif last_error:
             next_session["lastError"] = last_error
         return session_service.save_owner_session(owner_id, SESSION_KIND_IMAGE_SELECTION, next_session)
+
+    def _merge_candidates(self, latest_session: dict[str, Any], next_candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        latest_candidates = [candidate for candidate in latest_session.get("candidates", []) if isinstance(candidate, dict)]
+        next_by_id = {_clean(candidate.get("id")): candidate for candidate in next_candidates if _clean(candidate.get("id"))}
+        merged: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for candidate in latest_candidates:
+            candidate_id = _clean(candidate.get("id"))
+            next_candidate = next_by_id.get(candidate_id)
+            if not next_candidate:
+                merged.append(candidate)
+            elif candidate.get("status") in {"kept", "discarded"}:
+                merged.append(candidate)
+            else:
+                merged.append(next_candidate)
+            if candidate_id:
+                seen_ids.add(candidate_id)
+        for candidate in next_candidates:
+            candidate_id = _clean(candidate.get("id"))
+            if candidate_id and candidate_id not in seen_ids:
+                merged.append(candidate)
+        return merged
 
 
 image_selection_queue_service = ImageSelectionQueueService()

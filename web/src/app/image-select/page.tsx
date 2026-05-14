@@ -20,10 +20,10 @@ import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
 import {
   deleteImageSelectionSession,
-  getImageSelectionSession,
   getImageSelectionSessionStats,
   listImageSelectionSessions,
   saveImageSelectionSession,
+  streamImageSelectionSession,
   type ImageSelectionCandidate,
   type ImageSelectionSession,
 } from "@/store/image-selection-sessions";
@@ -41,6 +41,11 @@ const imageSizeOptions = [
   { value: "3:4", label: "3:4" },
   { value: "9:16", label: "9:16" },
 ];
+
+function timestamp(value: string) {
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
 
 function createId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -329,7 +334,7 @@ function ReviewStage({
 function ImageSelectContent() {
   const sessionsRef = useRef<ImageSelectionSession[]>([]);
   const originalPreloadRef = useRef<Map<string, HTMLImageElement>>(new Map());
-  const refreshingSessionRef = useRef(false);
+  const savingSessionIdsRef = useRef<Set<string>>(new Set());
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const [sessions, setSessions] = useState<ImageSelectionSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -423,7 +428,12 @@ function ImageSelectContent() {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
-    await saveImageSelectionSession(session);
+    savingSessionIdsRef.current.add(session.id);
+    try {
+      await saveImageSelectionSession(session);
+    } finally {
+      savingSessionIdsRef.current.delete(session.id);
+    }
   }, []);
 
   const handleDeleteSession = useCallback(async (id: string) => {
@@ -696,44 +706,55 @@ function ImageSelectContent() {
   }, [selectedSession]);
 
   useEffect(() => {
-    if (selectedSession?.status !== "running" && !hasLoading) {
+    if (!selectedSessionId) {
       return;
     }
+    const controller = new AbortController();
     let cancelled = false;
-    const refreshSession = async () => {
-      if (!selectedSessionId || refreshingSessionRef.current) {
+
+    const applySession = (nextSession: ImageSelectionSession) => {
+      if (cancelled || savingSessionIdsRef.current.has(nextSession.id)) {
         return;
       }
-      refreshingSessionRef.current = true;
-      try {
-        const nextSession = await getImageSelectionSession(selectedSessionId);
-        if (cancelled) {
-          return;
+      const current = sessionsRef.current.find((session) => session.id === nextSession.id);
+      if (current && timestamp(nextSession.updatedAt) < timestamp(current.updatedAt)) {
+        return;
+      }
+      const nextSessions = [nextSession, ...sessionsRef.current.filter((session) => session.id !== nextSession.id)]
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      sessionsRef.current = nextSessions;
+      setSessions(nextSessions);
+    };
+
+    const subscribe = async () => {
+      while (!controller.signal.aborted) {
+        try {
+          await streamImageSelectionSession(selectedSessionId, {
+            signal: controller.signal,
+            onSession: applySession,
+            onDeleted: (id) => {
+              if (!id || cancelled) return;
+              const nextSessions = sessionsRef.current.filter((session) => session.id !== id);
+              sessionsRef.current = nextSessions;
+              setSessions(nextSessions);
+              setSelectedSessionId((current) => current === id ? nextSessions[0]?.id ?? null : current);
+            },
+          });
+        } catch {
+          if (controller.signal.aborted) {
+            return;
+          }
         }
-        if (!nextSession) {
-          const nextSessions = sessionsRef.current.filter((session) => session.id !== selectedSessionId);
-          sessionsRef.current = nextSessions;
-          setSessions(nextSessions);
-          setSelectedSessionId(nextSessions[0]?.id ?? null);
-          return;
-        }
-        const nextSessions = [nextSession, ...sessionsRef.current.filter((session) => session.id !== nextSession.id)]
-          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-        sessionsRef.current = nextSessions;
-        setSessions(nextSessions);
-      } catch {
-        // Backend queue refresh is best-effort; existing UI state remains usable.
-      } finally {
-        refreshingSessionRef.current = false;
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
       }
     };
-    void refreshSession();
-    const timer = window.setInterval(() => void refreshSession(), 2000);
+
+    void subscribe();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      controller.abort();
     };
-  }, [hasLoading, selectedSession?.status, selectedSessionId]);
+  }, [selectedSessionId]);
 
   if (isLoading) {
     return <div className="flex min-h-[40vh] items-center justify-center"><LoaderCircle className="size-5 animate-spin text-stone-400" /></div>;
