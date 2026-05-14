@@ -137,6 +137,10 @@ def _image_dimensions(path: Path) -> tuple[int, int] | None:
 def ensure_thumbnail(relative_path: str) -> Path:
     source = _safe_image_path(relative_path)
     target = _thumbnail_path(relative_path)
+    if not config.image_thumbnail_generation:
+        if target.exists():
+            return target
+        raise HTTPException(status_code=404, detail="thumbnail not found")
     source_mtime = source.stat().st_mtime
     if target.exists() and target.stat().st_mtime >= source_mtime:
         return target

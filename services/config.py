@@ -220,6 +220,10 @@ class ConfigStore:
         return _normalize_bool(self.data.get("image_download_append_prompt"), False)
 
     @property
+    def image_thumbnail_generation(self) -> bool:
+        return _normalize_bool(self.data.get("image_thumbnail_generation"), True)
+
+    @property
     def auto_remove_invalid_accounts(self) -> bool:
         value = self.data.get("auto_remove_invalid_accounts", False)
         if isinstance(value, str):
@@ -341,6 +345,7 @@ class ConfigStore:
         data["image_global_concurrency"] = self.image_global_concurrency
         data["image_cleanup_skip_kept"] = self.image_cleanup_skip_kept
         data["image_download_append_prompt"] = self.image_download_append_prompt
+        data["image_thumbnail_generation"] = self.image_thumbnail_generation
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
         data["auto_remove_rate_limited_accounts"] = self.auto_remove_rate_limited_accounts
         data["log_levels"] = self.log_levels
@@ -362,6 +367,7 @@ class ConfigStore:
         next_data["image_global_concurrency"] = _normalize_positive_int(next_data.get("image_global_concurrency"), 3, 1)
         next_data["image_cleanup_skip_kept"] = _normalize_bool(next_data.get("image_cleanup_skip_kept"), False)
         next_data["image_download_append_prompt"] = _normalize_bool(next_data.get("image_download_append_prompt"), False)
+        next_data["image_thumbnail_generation"] = _normalize_bool(next_data.get("image_thumbnail_generation"), True)
         next_data.pop("backup_state", None)
         self.data = next_data
         self._save()

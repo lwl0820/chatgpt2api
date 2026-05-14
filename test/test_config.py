@@ -166,6 +166,20 @@ class ConfigLoadingTests(unittest.TestCase):
         self.assertFalse(store.update({"image_download_append_prompt": False})["image_download_append_prompt"])
         self.assertFalse(store.image_download_append_prompt)
 
+    def test_image_thumbnail_generation_defaults_to_enabled(self) -> None:
+        store = self._with_temp_config()
+
+        self.assertTrue(store.image_thumbnail_generation)
+        self.assertTrue(store.get()["image_thumbnail_generation"])
+
+    def test_update_image_thumbnail_generation_setting(self) -> None:
+        store = self._with_temp_config()
+
+        self.assertFalse(store.update({"image_thumbnail_generation": False})["image_thumbnail_generation"])
+        self.assertFalse(store.image_thumbnail_generation)
+        self.assertTrue(store.update({"image_thumbnail_generation": True})["image_thumbnail_generation"])
+        self.assertTrue(store.image_thumbnail_generation)
+
     def test_image_global_concurrency_defaults_to_three(self) -> None:
         store = self._with_temp_config()
 

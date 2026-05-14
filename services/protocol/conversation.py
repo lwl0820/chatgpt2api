@@ -67,7 +67,6 @@ def encode_images(images: Iterable[tuple[bytes, str, str]]) -> list[str]:
 
 
 def save_image_bytes(image_data: bytes, base_url: str | None = None) -> str:
-    config.cleanup_old_images()
     file_hash = hashlib.md5(image_data).hexdigest()
     filename = f"{int(time.time())}_{file_hash}.png"
     relative_dir = Path(time.strftime("%Y"), time.strftime("%m"), time.strftime("%d"))

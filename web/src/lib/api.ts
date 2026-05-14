@@ -66,6 +66,7 @@ export type SettingsConfig = {
   image_retention_days?: number | string;
   image_cleanup_skip_kept?: boolean;
   image_download_append_prompt?: boolean;
+  image_thumbnail_generation?: boolean;
   image_poll_timeout_secs?: number | string;
   image_account_concurrency?: number | string;
   image_global_concurrency?: number | string;

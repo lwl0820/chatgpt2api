@@ -24,6 +24,7 @@ export function ConfigCard() {
   const setImageRetentionDays = useSettingsStore((state) => state.setImageRetentionDays);
   const setImageCleanupSkipKept = useSettingsStore((state) => state.setImageCleanupSkipKept);
   const setImageDownloadAppendPrompt = useSettingsStore((state) => state.setImageDownloadAppendPrompt);
+  const setImageThumbnailGeneration = useSettingsStore((state) => state.setImageThumbnailGeneration);
   const setImagePollTimeoutSecs = useSettingsStore((state) => state.setImagePollTimeoutSecs);
   const setImageAccountConcurrency = useSettingsStore((state) => state.setImageAccountConcurrency);
   const setImageGlobalConcurrency = useSettingsStore((state) => state.setImageGlobalConcurrency);
@@ -194,6 +195,19 @@ export function ConfigCard() {
               <span className="block">下载图片时追加提示词</span>
               <span className="mt-1 block text-xs leading-5 text-stone-500">
                 默认关闭。开启后，能关联到提示词的图片下载文件会在文件数据末尾追加提示词，文件名不包含提示词。
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700 md:col-span-2">
+            <Checkbox
+              checked={config?.image_thumbnail_generation !== false}
+              onCheckedChange={(checked) => setImageThumbnailGeneration(Boolean(checked))}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block">生成图片缩略图</span>
+              <span className="mt-1 block text-xs leading-5 text-stone-500">
+                默认开启。关闭后不再创建新的缩略图；已有缩略图、缩略图清理和前端原图回退保持不变。
               </span>
             </span>
           </label>
