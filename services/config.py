@@ -85,6 +85,16 @@ def _normalize_backup_state(value: object) -> dict[str, object]:
     }
 
 
+def _normalize_image_relative_path(value: object) -> str:
+    rel = str(value or "").strip().replace("\\", "/").lstrip("/")
+    if not rel:
+        return ""
+    parts = Path(rel).parts
+    if any(part in {"", ".", ".."} for part in parts):
+        return ""
+    return Path(*parts).as_posix()
+
+
 @dataclass(frozen=True)
 class LoadedSettings:
     auth_key: str
@@ -195,6 +205,10 @@ class ConfigStore:
             return 3
 
     @property
+    def image_cleanup_skip_kept(self) -> bool:
+        return _normalize_bool(self.data.get("image_cleanup_skip_kept"), False)
+
+    @property
     def auto_remove_invalid_accounts(self) -> bool:
         value = self.data.get("auto_remove_invalid_accounts", False)
         if isinstance(value, str):
@@ -244,17 +258,52 @@ class ConfigStore:
 
     def cleanup_old_images(self) -> int:
         cutoff = time.time() - self.image_retention_days * 86400
+        root = self.images_dir
+        protected_paths = self._kept_image_selection_paths(root) if self.image_cleanup_skip_kept else set()
         removed = 0
-        for path in self.images_dir.rglob("*"):
+        for path in root.rglob("*"):
             if path.is_file() and path.stat().st_mtime < cutoff:
+                rel = path.relative_to(root).as_posix()
+                if rel in protected_paths:
+                    continue
                 path.unlink()
                 removed += 1
-        for path in sorted((p for p in self.images_dir.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+        for path in sorted((p for p in root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
             try:
                 path.rmdir()
             except OSError:
                 pass
         return removed
+
+    def _kept_image_selection_paths(self, root: Path) -> set[str]:
+        try:
+            from services.session_service import SESSION_KIND_IMAGE_SELECTION, session_service
+        except Exception:
+            return set()
+
+        root = root.resolve()
+        protected: set[str] = set()
+        try:
+            sessions = session_service.list_all_sessions(SESSION_KIND_IMAGE_SELECTION)
+        except Exception:
+            return protected
+        for entry in sessions:
+            item = entry.get("item") if isinstance(entry, dict) else None
+            candidates = item.get("candidates") if isinstance(item, dict) else None
+            if not isinstance(candidates, list):
+                continue
+            for candidate in candidates:
+                if not isinstance(candidate, dict) or candidate.get("status") != "kept":
+                    continue
+                rel = _normalize_image_relative_path(candidate.get("rel") or candidate.get("path"))
+                if not rel:
+                    continue
+                try:
+                    (root / rel).resolve().relative_to(root)
+                except ValueError:
+                    continue
+                protected.add(rel)
+        return protected
 
     @property
     def base_url(self) -> str:
@@ -278,6 +327,7 @@ class ConfigStore:
         data["image_retention_days"] = self.image_retention_days
         data["image_poll_timeout_secs"] = self.image_poll_timeout_secs
         data["image_account_concurrency"] = self.image_account_concurrency
+        data["image_cleanup_skip_kept"] = self.image_cleanup_skip_kept
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
         data["auto_remove_rate_limited_accounts"] = self.auto_remove_rate_limited_accounts
         data["log_levels"] = self.log_levels
@@ -296,6 +346,7 @@ class ConfigStore:
         next_data.update(dict(data or {}))
         if "backup" in next_data:
             next_data["backup"] = _normalize_backup_settings(next_data.get("backup"))
+        next_data["image_cleanup_skip_kept"] = _normalize_bool(next_data.get("image_cleanup_skip_kept"), False)
         next_data.pop("backup_state", None)
         self.data = next_data
         self._save()

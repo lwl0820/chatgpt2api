@@ -22,6 +22,7 @@ export function ConfigCard() {
   const isSavingConfig = useSettingsStore((state) => state.isSavingConfig);
   const setRefreshAccountIntervalMinute = useSettingsStore((state) => state.setRefreshAccountIntervalMinute);
   const setImageRetentionDays = useSettingsStore((state) => state.setImageRetentionDays);
+  const setImageCleanupSkipKept = useSettingsStore((state) => state.setImageCleanupSkipKept);
   const setImagePollTimeoutSecs = useSettingsStore((state) => state.setImagePollTimeoutSecs);
   const setImageAccountConcurrency = useSettingsStore((state) => state.setImageAccountConcurrency);
   const setAutoRemoveInvalidAccounts = useSettingsStore((state) => state.setAutoRemoveInvalidAccounts);
@@ -134,12 +135,21 @@ export function ConfigCard() {
           </div>
           <div className="space-y-2">
             <label className="text-sm text-stone-700">图片自动清理</label>
-            <Input
-              value={String(config?.image_retention_days || "")}
-              onChange={(event) => setImageRetentionDays(event.target.value)}
-              placeholder="30"
-              className="h-10 rounded-xl border-stone-200 bg-white"
-            />
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                value={String(config?.image_retention_days || "")}
+                onChange={(event) => setImageRetentionDays(event.target.value)}
+                placeholder="30"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+              <label className="flex h-10 items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(config?.image_cleanup_skip_kept)}
+                  onCheckedChange={(checked) => setImageCleanupSkipKept(Boolean(checked))}
+                />
+                不清理保留的图片
+              </label>
+            </div>
             <p className="text-xs text-stone-500">自动删除多少天前的本地图片。</p>
           </div>
           <div className="space-y-2">
