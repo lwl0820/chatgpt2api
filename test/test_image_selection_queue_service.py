@@ -63,12 +63,14 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
             "queueLimit": 2,
             "failureLimit": 5,
             "candidates": [],
+            "updatedAt": "2026-01-01T00:00:00.000",
         })
 
         self.service.run_once()
 
         session = self.get_selection()
         self.assertEqual(len(session["candidates"]), 2)
+        self.assertEqual(session["updatedAt"], "2026-01-01T00:00:00.000")
         self.assertEqual(len(self.task_service.submitted), 2)
         self.assertTrue(all(candidate["status"] == "loading" for candidate in session["candidates"]))
         self.assertTrue(all(candidate["prompt"] == "cat" for candidate in session["candidates"]))
@@ -81,6 +83,7 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
             "queueLimit": 1,
             "failureLimit": 5,
             "candidates": [{"id": "candidate-1", "taskId": "task-1", "status": "loading", "prompt": "cat", "createdAt": "now"}],
+            "updatedAt": "2026-01-01T00:00:00.000",
         })
         self.task_service.tasks["task-1"] = {
             "id": "task-1",
@@ -90,11 +93,13 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
 
         self.service.run_once()
 
-        candidate = self.get_selection()["candidates"][0]
+        session = self.get_selection()
+        candidate = session["candidates"][0]
         self.assertEqual(candidate["status"], "ready")
         self.assertEqual(candidate["prompt"], "cat")
         self.assertEqual(candidate["url"], "/images/2026/01/01/cat.png")
         self.assertEqual(candidate["rel"], "2026/01/01/cat.png")
+        self.assertEqual(session["updatedAt"], "2026-01-01T00:00:00.000")
 
     def test_pauses_after_failure_limit(self):
         self.save_selection({
@@ -104,6 +109,7 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
             "queueLimit": 1,
             "failureLimit": 1,
             "candidates": [{"id": "candidate-1", "taskId": "task-1", "status": "loading", "createdAt": "now"}],
+            "updatedAt": "2026-01-01T00:00:00.000",
         })
         self.task_service.tasks["task-1"] = {"id": "task-1", "status": "error", "error": "boom"}
 
@@ -112,6 +118,7 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
         session = self.get_selection()
         self.assertEqual(session["status"], "paused")
         self.assertEqual(session["lastError"], "连续生成失败，已暂停选图")
+        self.assertEqual(session["updatedAt"], "2026-01-01T00:00:00.000")
 
     def test_syncs_loading_candidates_after_session_paused(self):
         self.save_selection({

@@ -197,7 +197,6 @@ class ImageSelectionQueueService:
         now: str | None = None,
         last_error: str | None = None,
     ) -> dict[str, Any]:
-        timestamp = now or _now_iso()
         latest = session_service.get_session({"id": owner_id}, SESSION_KIND_IMAGE_SELECTION, _clean(session.get("id"))) or session
         candidates = self._merge_candidates(latest, candidates)
         failures = _count_trailing_errors(candidates)
@@ -208,7 +207,6 @@ class ImageSelectionQueueService:
             "candidates": candidates,
             "consecutiveFailures": failures,
             "status": "paused" if should_pause else latest.get("status", "running"),
-            "updatedAt": timestamp,
         }
         if should_pause:
             next_session["lastError"] = "连续生成失败，已暂停选图"

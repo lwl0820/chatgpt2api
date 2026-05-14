@@ -4,30 +4,35 @@ Define the image selection workflow for creating, resuming, reviewing, downloadi
 ## Requirements
 
 ### Requirement: Image selection sessions
-The system SHALL provide an image selection workflow where a user can create and resume local selection sessions built around a single prompt, image generation configuration, candidate queue length, and consecutive failure pause limit. The system SHALL list image selection sessions only by `updatedAt` descending; `updatedAt` represents only session creation or user-edited session configuration time and does not represent image generation task or candidate state changes inside the session.
+系统 SHALL 提供选图工作流，用户可以围绕单个提示词、图片生成配置、候选队列长度和连续失败暂停阈值创建并恢复本地选图会话。系统 SHALL 只按会话 `updatedAt` 倒序列出选图会话；`updatedAt` 只表示会话创建或用户编辑会话配置的时间，不表示会话内生图任务或候选图状态变化时间。
 
-#### Scenario: Create selection session
-- **WHEN** the user enters a non-empty prompt on the image selection page and starts selection
-- **THEN** the system SHALL create a selection session with the prompt, image size, queue limit, consecutive failure pause limit, empty candidate list, and running status
-- **AND** the system SHALL set the session's `createdAt` and `updatedAt` to the creation time
+#### Scenario: 创建选图会话
+- **WHEN** 用户在选图页输入非空提示词并开始选图
+- **THEN** 系统 SHALL 创建一个包含提示词、图片尺寸、队列长度、连续失败暂停阈值、空候选列表和运行状态的选图会话
+- **AND** 系统 SHALL 将该会话的 `createdAt` 和 `updatedAt` 设置为创建时间
 
-#### Scenario: Restore existing selection session
-- **WHEN** the user opens a previously created selection session
-- **THEN** the system SHALL restore the session prompt, candidates, kept images, discarded images, and current status from local storage
+#### Scenario: 恢复已有选图会话
+- **WHEN** 用户打开此前创建的选图会话
+- **THEN** 系统 SHALL 从本地存储恢复该会话的提示词、候选图、保留图片、丢弃图片和当前状态
 
-#### Scenario: List sessions by updated time descending
-- **WHEN** the system displays the image selection session list
-- **THEN** the system SHALL sort sessions by `updatedAt` descending so the most recently created or most recently configuration-edited session appears first
+#### Scenario: 按更新时间倒序列出会话
+- **WHEN** 系统展示选图会话列表
+- **THEN** 系统 SHALL 按 `updatedAt` 倒序排列会话，使最新创建或最新配置编辑的会话位于最上方
 
-#### Scenario: Editing session configuration updates sorting time
-- **WHEN** the user edits and saves an image selection session's title, prompt, queue length, or consecutive failure pause limit
-- **THEN** the system SHALL update that session's `updatedAt`
-- **AND** the session list SHALL be resorted by the new `updatedAt`
+#### Scenario: 编辑会话配置会更新排序时间
+- **WHEN** 用户编辑选图会话的标题、提示词、队列长度或连续失败暂停阈值并保存
+- **THEN** 系统 SHALL 更新该会话的 `updatedAt`
+- **AND** 会话列表 SHALL 根据新的 `updatedAt` 重新排序
 
-#### Scenario: Image generation task changes do not update sorting time
-- **WHEN** candidate task polling, completion, failure, keep, discard, undo, pause, or continue changes occur inside an image selection session
-- **THEN** the system SHALL keep that session's `updatedAt` unchanged
-- **AND** the system SHALL NOT move that session above other updated sessions because of those changes
+#### Scenario: 生图任务变化不更新排序时间
+- **WHEN** 选图会话内的候选图任务轮询、完成、失败、自动补队列、保留、丢弃、撤销、暂停或继续发生变化
+- **THEN** 系统 SHALL 保持该会话的 `updatedAt` 不变
+- **AND** 系统 SHALL NOT 因这些变化将该会话移动到比其他更新会话更靠上的位置
+
+#### Scenario: 后端队列同步不更新排序时间
+- **WHEN** 后端选图队列服务保存 loading 候选、同步任务成功结果、同步任务失败结果或因连续失败自动暂停会话
+- **THEN** 系统 SHALL 保存候选图和会话运行状态变化
+- **AND** 系统 SHALL 保持该会话的 `updatedAt` 不变
 
 ### Requirement: Candidate generation prompt provenance
 The system SHALL record the prompt used to submit each new image selection candidate and use that candidate-level generation prompt wherever a prompt must be associated with that candidate image.
