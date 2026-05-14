@@ -65,6 +65,7 @@ export type SettingsConfig = {
   refresh_account_interval_minute?: number | string;
   image_retention_days?: number | string;
   image_cleanup_skip_kept?: boolean;
+  image_download_append_prompt?: boolean;
   image_poll_timeout_secs?: number | string;
   image_account_concurrency?: number | string;
   image_global_concurrency?: number | string;
@@ -476,6 +477,12 @@ export async function updateSettingsConfig(settings: SettingsConfig) {
   return httpRequest<{ config: SettingsConfig }>("/api/settings", {
     method: "POST",
     body: settings,
+  });
+}
+
+export async function fetchImageDownloadSettings() {
+  return httpRequest<{ image_download_append_prompt: boolean }>("/api/image-download-settings", {
+    redirectOnUnauthorized: false,
   });
 }
 

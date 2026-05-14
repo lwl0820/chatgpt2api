@@ -23,6 +23,7 @@ export function ConfigCard() {
   const setRefreshAccountIntervalMinute = useSettingsStore((state) => state.setRefreshAccountIntervalMinute);
   const setImageRetentionDays = useSettingsStore((state) => state.setImageRetentionDays);
   const setImageCleanupSkipKept = useSettingsStore((state) => state.setImageCleanupSkipKept);
+  const setImageDownloadAppendPrompt = useSettingsStore((state) => state.setImageDownloadAppendPrompt);
   const setImagePollTimeoutSecs = useSettingsStore((state) => state.setImagePollTimeoutSecs);
   const setImageAccountConcurrency = useSettingsStore((state) => state.setImageAccountConcurrency);
   const setImageGlobalConcurrency = useSettingsStore((state) => state.setImageGlobalConcurrency);
@@ -183,6 +184,19 @@ export function ConfigCard() {
             />
             <p className="text-xs text-stone-500">限制整个系统同时运行的生图和图生图任务数量，默认 3。</p>
           </div>
+          <label className="flex items-start gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700 md:col-span-2">
+            <Checkbox
+              checked={Boolean(config?.image_download_append_prompt)}
+              onCheckedChange={(checked) => setImageDownloadAppendPrompt(Boolean(checked))}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block">下载图片时追加提示词</span>
+              <span className="mt-1 block text-xs leading-5 text-stone-500">
+                默认关闭。开启后，能关联到提示词的图片下载文件会在文件数据末尾追加提示词，文件名不包含提示词。
+              </span>
+            </span>
+          </label>
           <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
             <Checkbox
               checked={Boolean(config?.auto_remove_invalid_accounts)}

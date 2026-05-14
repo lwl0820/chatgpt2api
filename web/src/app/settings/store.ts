@@ -29,6 +29,7 @@ import {
   type RegisterConfig,
   type SettingsConfig,
 } from "@/lib/api";
+import { resetImageDownloadAppendPromptCache } from "@/lib/image-download";
 
 export const PAGE_SIZE_OPTIONS = ["50", "100", "200"] as const;
 
@@ -66,6 +67,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     refresh_account_interval_minute: Number(config.refresh_account_interval_minute || 5),
     image_retention_days: Number(config.image_retention_days || 30),
     image_cleanup_skip_kept: Boolean(config.image_cleanup_skip_kept),
+    image_download_append_prompt: Boolean(config.image_download_append_prompt),
     image_poll_timeout_secs: Number(config.image_poll_timeout_secs || 120),
     image_account_concurrency: Number(config.image_account_concurrency || 3),
     image_global_concurrency: Number(config.image_global_concurrency || 3),
@@ -174,6 +176,7 @@ type SettingsStore = {
   setRefreshAccountIntervalMinute: (value: string) => void;
   setImageRetentionDays: (value: string) => void;
   setImageCleanupSkipKept: (value: boolean) => void;
+  setImageDownloadAppendPrompt: (value: boolean) => void;
   setImagePollTimeoutSecs: (value: string) => void;
   setImageAccountConcurrency: (value: string) => void;
   setImageGlobalConcurrency: (value: string) => void;
@@ -307,6 +310,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         refresh_account_interval_minute: Math.max(1, Number(config.refresh_account_interval_minute) || 1),
         image_retention_days: Math.max(1, Number(config.image_retention_days) || 30),
         image_cleanup_skip_kept: Boolean(config.image_cleanup_skip_kept),
+        image_download_append_prompt: Boolean(config.image_download_append_prompt),
         image_poll_timeout_secs: Math.max(1, Number(config.image_poll_timeout_secs) || 120),
         image_account_concurrency: Math.max(1, Number(config.image_account_concurrency) || 3),
         image_global_concurrency: Math.max(1, Number(config.image_global_concurrency) || 3),
@@ -338,6 +342,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       set({
         config: normalizeConfig(data.config),
       });
+      resetImageDownloadAppendPromptCache();
       toast.success("配置已保存");
       return true;
     } catch (error) {
@@ -368,6 +373,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setImageCleanupSkipKept: (value) => {
     set((state) => state.config ? { config: { ...state.config, image_cleanup_skip_kept: value } } : {});
+  },
+
+  setImageDownloadAppendPrompt: (value) => {
+    set((state) => state.config ? { config: { ...state.config, image_download_append_prompt: value } } : {});
   },
 
   setImagePollTimeoutSecs: (value) => {

@@ -4,12 +4,14 @@ import { useState } from "react";
 import { Clock3, Download, LoaderCircle, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { downloadImageWithPrompt } from "@/lib/image-download";
 import { cn } from "@/lib/utils";
 import type { ImageConversation, ImageTurnStatus, StoredImage, StoredReferenceImage } from "@/store/image-conversations";
 
 export type ImageLightboxItem = {
   id: string;
   src: string;
+  prompt?: string;
   sizeLabel?: string;
   dimensions?: string;
 };
@@ -31,29 +33,6 @@ function getStoredImageSrc(image: StoredImage) {
     return `data:image/png;base64,${image.b64_json}`;
   }
   return image.url || "";
-}
-
-async function downloadStoredImage(image: StoredImage, index: number) {
-  let blob: Blob;
-  if (image.b64_json) {
-    const binary = atob(image.b64_json);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    blob = new Blob([bytes], { type: "image/png" });
-  } else if (image.url) {
-    const res = await fetch(image.url);
-    blob = await res.blob();
-  } else {
-    return;
-  }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `image-${index + 1}.png`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 export function ImageResults({
@@ -110,6 +89,7 @@ export function ImageResults({
         const referenceLightboxImages = turn.referenceImages.map((image, index) => ({
           id: `${turn.id}-reference-${index}`,
           src: image.dataUrl,
+          prompt: turn.prompt,
         }));
         const successfulTurnImages = turn.images.flatMap((image) => {
           const src = image.status === "success" ? getStoredImageSrc(image) : "";
@@ -118,6 +98,7 @@ export function ImageResults({
                 {
                   id: image.id,
                   src,
+                  prompt: turn.prompt,
                   sizeLabel: image.b64_json ? formatBase64ImageSize(image.b64_json) : undefined,
                   dimensions: imageDimensions[image.id],
                 },
@@ -256,7 +237,7 @@ export function ImageResults({
                                   variant="outline"
                                   size="sm"
                                   className="h-7 w-7 rounded-full border-stone-200 bg-white px-0 text-[10px] text-stone-700 hover:bg-stone-50 sm:h-8 sm:w-fit sm:px-3 sm:text-xs"
-                                  onClick={() => void downloadStoredImage(image, index)}
+                                  onClick={() => void downloadImageWithPrompt(imageSrc, `image-${index + 1}.png`, { prompt: turn.prompt })}
                                   aria-label="下载"
                                 >
                                   <Download className="size-3 sm:size-4" />

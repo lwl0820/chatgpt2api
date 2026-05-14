@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import io
+import mimetypes
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi import HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageOps
 
 from services.config import config
 from services.image_tags_service import load_tags, remove_tags
 
 THUMBNAIL_SIZE = (320, 320)
+PROMPT_PAYLOAD_PREFIX = b"\n\n-- chatgpt2api prompt --\n"
+PROMPT_PAYLOAD_SUFFIX = b"\n-- end chatgpt2api prompt --\n"
 
 
 def _cleanup_empty_dirs(root: Path) -> None:
@@ -44,6 +48,73 @@ def _safe_image_path(relative_path: str) -> Path:
     if not path.is_file():
         raise HTTPException(status_code=404, detail="image not found")
     return path
+
+
+def append_prompt_payload(data: bytes, prompt: str) -> bytes:
+    normalized = str(prompt or "").strip()
+    if not normalized:
+        return data
+    return data + PROMPT_PAYLOAD_PREFIX + normalized.encode("utf-8") + PROMPT_PAYLOAD_SUFFIX
+
+
+def _extract_image_relative_path(value: object) -> str:
+    source = str(value or "").strip()
+    if not source:
+        return ""
+    marker = "/images/"
+    if marker in source:
+        source = source.split(marker, 1)[1].split("?", 1)[0].split("#", 1)[0]
+    return _safe_relative_path(unquote(source))
+
+
+def _safe_extract_image_relative_path(value: object) -> str:
+    try:
+        return _extract_image_relative_path(value)
+    except HTTPException:
+        return ""
+
+
+def _image_prompt_map() -> dict[str, str]:
+    try:
+        from services.session_service import SESSION_KIND_IMAGE_CONVERSATION, SESSION_KIND_IMAGE_SELECTION, session_service
+    except Exception:
+        return {}
+
+    prompts: dict[str, str] = {}
+    for record in session_service.list_all_sessions(SESSION_KIND_IMAGE_CONVERSATION):
+        item = record.get("item") if isinstance(record, dict) else None
+        turns = item.get("turns") if isinstance(item, dict) else None
+        if not isinstance(turns, list):
+            continue
+        for turn in turns:
+            if not isinstance(turn, dict):
+                continue
+            prompt = str(turn.get("prompt") or "").strip()
+            images = turn.get("images")
+            if not prompt or not isinstance(images, list):
+                continue
+            for image in images:
+                if not isinstance(image, dict):
+                    continue
+                rel = _safe_extract_image_relative_path(image.get("rel") or image.get("path") or image.get("url"))
+                if rel:
+                    prompts[rel] = prompt
+
+    for record in session_service.list_all_sessions(SESSION_KIND_IMAGE_SELECTION):
+        item = record.get("item") if isinstance(record, dict) else None
+        if not isinstance(item, dict):
+            continue
+        prompt = str(item.get("prompt") or "").strip()
+        candidates = item.get("candidates")
+        if not prompt or not isinstance(candidates, list):
+            continue
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            rel = _safe_extract_image_relative_path(candidate.get("rel") or candidate.get("path") or candidate.get("url"))
+            if rel:
+                prompts[rel] = prompt
+    return prompts
 
 
 def _thumbnail_path(relative_path: str) -> Path:
@@ -89,8 +160,17 @@ def get_thumbnail_response(relative_path: str) -> FileResponse:
     return FileResponse(ensure_thumbnail(relative_path))
 
 
-def get_image_download_response(relative_path: str) -> FileResponse:
+def get_image_download_response(relative_path: str) -> FileResponse | Response:
     path = _safe_image_path(relative_path)
+    rel = path.relative_to(config.images_dir.resolve()).as_posix()
+    prompt = _image_prompt_map().get(rel) if config.image_download_append_prompt else ""
+    if prompt:
+        media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        return Response(
+            append_prompt_payload(path.read_bytes(), prompt),
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{path.name}"'},
+        )
     return FileResponse(path, filename=path.name)
 
 
@@ -182,6 +262,7 @@ def download_images_zip(paths: list[str]) -> io.BytesIO:
     buf = io.BytesIO()
     added = 0
     used_names: set[str] = set()
+    prompt_map = _image_prompt_map() if config.image_download_append_prompt else {}
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for item in paths:
             rel = _safe_relative_path(item)
@@ -201,7 +282,11 @@ def download_images_zip(paths: list[str]) -> io.BytesIO:
                     counter += 1
                 name = f"{stem}_{counter}{suffix}"
             used_names.add(name)
-            zf.write(path, name)
+            prompt = prompt_map.get(rel)
+            if prompt:
+                zf.writestr(name, append_prompt_payload(path.read_bytes(), prompt))
+            else:
+                zf.write(path, name)
             added += 1
     if added == 0:
         raise HTTPException(status_code=404, detail="no images found")

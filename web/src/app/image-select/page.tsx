@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { downloadImageWithPrompt } from "@/lib/image-download";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
 import {
@@ -90,43 +91,9 @@ function sanitizeDownloadName(value: string) {
   return value.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").slice(0, 80) || "image-selection";
 }
 
-function getExtensionFromMime(type: string) {
-  if (type.includes("jpeg") || type.includes("jpg")) return "jpg";
-  if (type.includes("webp")) return "webp";
-  if (type.includes("gif")) return "gif";
-  return "png";
-}
-
 function getExtensionFromUrl(url: string) {
   const match = url.match(/\.([a-z0-9]+)(?:[?#]|$)/i);
   return match?.[1]?.toLowerCase() || "png";
-}
-
-async function downloadImageUrl(url: string, fileName: string) {
-  const anchor = document.createElement("a");
-  anchor.rel = "noopener";
-  anchor.download = fileName;
-  try {
-    if (url.startsWith("data:")) {
-      anchor.href = url;
-      anchor.click();
-      return;
-    }
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error("download failed");
-    }
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    anchor.href = objectUrl;
-    anchor.download = fileName.replace(/\.[a-z0-9]+$/i, `.${getExtensionFromMime(blob.type)}`);
-    anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-  } catch {
-    anchor.href = url;
-    anchor.download = fileName;
-    anchor.click();
-  }
 }
 
 type CandidateStripProps = {
@@ -666,7 +633,10 @@ function ImageSelectContent() {
     const baseName = sanitizeDownloadName(selectedSession.title || selectedSession.prompt || selectedSession.id);
     const extension = currentCandidate.url.startsWith("data:") ? "png" : getExtensionFromUrl(currentCandidate.url);
     try {
-      await downloadImageUrl(currentCandidate.url, `${baseName}-${currentCandidate.id}.${extension}`);
+      await downloadImageWithPrompt(currentCandidate.url, `${baseName}-${currentCandidate.id}.${extension}`, {
+        prompt: selectedSession.prompt,
+        inferExtension: true,
+      });
       await decideCurrent("kept");
       toast.success("已开始下载当前图片，并标记为保留");
     } catch (error) {

@@ -66,6 +66,11 @@ def create_router(app_version: str) -> APIRouter:
         require_admin(authorization)
         return {"config": config.get()}
 
+    @router.get("/api/image-download-settings")
+    async def get_image_download_settings(authorization: str | None = Header(default=None)):
+        require_identity(authorization)
+        return {"image_download_append_prompt": config.image_download_append_prompt}
+
     @router.post("/api/settings")
     async def save_settings(body: SettingsUpdateRequest, authorization: str | None = Header(default=None)):
         require_admin(authorization)

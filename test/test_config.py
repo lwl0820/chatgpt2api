@@ -152,6 +152,20 @@ class ConfigLoadingTests(unittest.TestCase):
         self.assertFalse(unsafe_image.exists())
         self.assertFalse(missing_path_image.exists())
 
+    def test_image_download_append_prompt_defaults_to_disabled(self) -> None:
+        store = self._with_temp_config()
+
+        self.assertFalse(store.image_download_append_prompt)
+        self.assertFalse(store.get()["image_download_append_prompt"])
+
+    def test_update_image_download_append_prompt_setting(self) -> None:
+        store = self._with_temp_config()
+
+        self.assertTrue(store.update({"image_download_append_prompt": True})["image_download_append_prompt"])
+        self.assertTrue(store.image_download_append_prompt)
+        self.assertFalse(store.update({"image_download_append_prompt": False})["image_download_append_prompt"])
+        self.assertFalse(store.image_download_append_prompt)
+
     def test_image_global_concurrency_defaults_to_three(self) -> None:
         store = self._with_temp_config()
 
@@ -170,6 +184,7 @@ class ConfigLoadingTests(unittest.TestCase):
         self.assertEqual(store.image_global_concurrency, 3)
         self.assertEqual(store.update({"image_global_concurrency": 0})["image_global_concurrency"], 1)
         self.assertEqual(store.image_global_concurrency, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
