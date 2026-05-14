@@ -350,6 +350,7 @@ function ImageSelectContent() {
   const [isImmersive, setIsImmersive] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [configTitle, setConfigTitle] = useState("");
+  const [configPrompt, setConfigPrompt] = useState("");
   const [configQueueLimit, setConfigQueueLimit] = useState(DEFAULT_QUEUE_LIMIT);
   const [configFailureLimit, setConfigFailureLimit] = useState(DEFAULT_FAILURE_LIMIT);
 
@@ -542,6 +543,7 @@ function ImageSelectContent() {
       return;
     }
     setConfigTitle(selectedSession.title);
+    setConfigPrompt(selectedSession.prompt);
     setConfigQueueLimit(selectedSession.queueLimit);
     setConfigFailureLimit(selectedSession.failureLimit);
     setConfigOpen(true);
@@ -551,12 +553,18 @@ function ImageSelectContent() {
     if (!selectedSession) {
       return;
     }
+    const nextPrompt = configPrompt.trim();
+    if (!nextPrompt) {
+      toast.error("请输入提示词");
+      return;
+    }
     const nextTitle = configTitle.trim() || selectedSession.prompt;
     const nextQueueLimit = Math.max(1, Math.min(100, Number(configQueueLimit) || DEFAULT_QUEUE_LIMIT));
     const nextFailureLimit = Math.max(1, Math.min(100, Number(configFailureLimit) || DEFAULT_FAILURE_LIMIT));
     await updateSession(selectedSession.id, (session) => ({
       ...session,
       title: nextTitle,
+      prompt: nextPrompt,
       queueLimit: nextQueueLimit,
       failureLimit: nextFailureLimit,
       consecutiveFailures: Math.min(session.consecutiveFailures, nextFailureLimit),
@@ -564,7 +572,7 @@ function ImageSelectContent() {
     }));
     setConfigOpen(false);
     toast.success("会话配置已更新");
-  }, [configFailureLimit, configQueueLimit, configTitle, selectedSession, updateSession]);
+  }, [configFailureLimit, configPrompt, configQueueLimit, configTitle, selectedSession, updateSession]);
 
   const selectSession = useCallback((id: string) => {
     setSelectedSessionId(id);
@@ -1033,6 +1041,16 @@ function ImageSelectContent() {
                 placeholder="输入会话标题"
                 className="h-10 rounded-xl border-stone-200 bg-white"
               />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <label className="text-sm font-medium text-stone-700">提示词</label>
+              <Textarea
+                value={configPrompt}
+                onChange={(event) => setConfigPrompt(event.target.value)}
+                placeholder="输入后续候选图使用的提示词"
+                className="min-h-28 rounded-xl border-stone-200 bg-white shadow-none"
+              />
+              <p className="text-xs text-stone-500">保存后仅影响新提交的候选图，已生成和已提交的候选图不会被修改。</p>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-stone-700">队列长度</label>

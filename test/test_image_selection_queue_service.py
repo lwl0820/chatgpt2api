@@ -130,6 +130,27 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
         self.assertEqual(session["candidates"][0]["error"], "boom")
         self.assertEqual(len(self.task_service.submitted), 0)
 
+    def test_uses_updated_session_prompt_for_new_candidates(self):
+        self.save_selection({
+            "id": "session-1",
+            "status": "running",
+            "prompt": "cat",
+            "queueLimit": 2,
+            "failureLimit": 5,
+            "candidates": [{"id": "candidate-1", "status": "kept", "createdAt": "now"}],
+        })
+        self.save_selection({
+            **self.get_selection(),
+            "prompt": "dog",
+        })
+
+        self.service.run_once()
+
+        session = self.get_selection()
+        self.assertEqual(self.task_service.submitted[0][1]["prompt"], "dog")
+        self.assertEqual(session["candidates"][0]["id"], "candidate-1")
+        self.assertEqual(session["candidates"][0]["status"], "kept")
+
     def test_worker_does_not_overwrite_user_decisions_from_stale_snapshot(self):
         stale = self.save_selection({
             "id": "session-1",
