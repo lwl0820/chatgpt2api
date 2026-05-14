@@ -68,6 +68,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     image_cleanup_skip_kept: Boolean(config.image_cleanup_skip_kept),
     image_poll_timeout_secs: Number(config.image_poll_timeout_secs || 120),
     image_account_concurrency: Number(config.image_account_concurrency || 3),
+    image_global_concurrency: Number(config.image_global_concurrency || 3),
     auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
     auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
@@ -175,6 +176,7 @@ type SettingsStore = {
   setImageCleanupSkipKept: (value: boolean) => void;
   setImagePollTimeoutSecs: (value: string) => void;
   setImageAccountConcurrency: (value: string) => void;
+  setImageGlobalConcurrency: (value: string) => void;
   setAutoRemoveInvalidAccounts: (value: boolean) => void;
   setAutoRemoveRateLimitedAccounts: (value: boolean) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
@@ -307,6 +309,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         image_cleanup_skip_kept: Boolean(config.image_cleanup_skip_kept),
         image_poll_timeout_secs: Math.max(1, Number(config.image_poll_timeout_secs) || 120),
         image_account_concurrency: Math.max(1, Number(config.image_account_concurrency) || 3),
+        image_global_concurrency: Math.max(1, Number(config.image_global_concurrency) || 3),
         auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
         auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
         proxy: config.proxy.trim(),
@@ -373,6 +376,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setImageAccountConcurrency: (value) => {
     set((state) => state.config ? { config: { ...state.config, image_account_concurrency: value } } : {});
+  },
+
+  setImageGlobalConcurrency: (value) => {
+    set((state) => state.config ? { config: { ...state.config, image_global_concurrency: value } } : {});
   },
 
   setAutoRemoveInvalidAccounts: (value) => {

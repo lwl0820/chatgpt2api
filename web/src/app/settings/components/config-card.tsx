@@ -25,6 +25,7 @@ export function ConfigCard() {
   const setImageCleanupSkipKept = useSettingsStore((state) => state.setImageCleanupSkipKept);
   const setImagePollTimeoutSecs = useSettingsStore((state) => state.setImagePollTimeoutSecs);
   const setImageAccountConcurrency = useSettingsStore((state) => state.setImageAccountConcurrency);
+  const setImageGlobalConcurrency = useSettingsStore((state) => state.setImageGlobalConcurrency);
   const setAutoRemoveInvalidAccounts = useSettingsStore((state) => state.setAutoRemoveInvalidAccounts);
   const setAutoRemoveRateLimitedAccounts = useSettingsStore((state) => state.setAutoRemoveRateLimitedAccounts);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
@@ -171,6 +172,16 @@ export function ConfigCard() {
               className="h-10 rounded-xl border-stone-200 bg-white"
             />
             <p className="text-xs text-stone-500">限制每个账号同时处理的图片请求数量，默认 3。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">全局生图并发数</label>
+            <Input
+              value={String(config?.image_global_concurrency || "")}
+              onChange={(event) => setImageGlobalConcurrency(event.target.value)}
+              placeholder="3"
+              className="h-10 rounded-xl border-stone-200 bg-white"
+            />
+            <p className="text-xs text-stone-500">限制整个系统同时运行的生图和图生图任务数量，默认 3。</p>
           </div>
           <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
             <Checkbox

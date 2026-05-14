@@ -67,6 +67,7 @@ export type SettingsConfig = {
   image_cleanup_skip_kept?: boolean;
   image_poll_timeout_secs?: number | string;
   image_account_concurrency?: number | string;
+  image_global_concurrency?: number | string;
   auto_remove_invalid_accounts?: boolean;
   auto_remove_rate_limited_accounts?: boolean;
   log_levels?: string[];

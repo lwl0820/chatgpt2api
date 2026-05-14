@@ -152,6 +152,24 @@ class ConfigLoadingTests(unittest.TestCase):
         self.assertFalse(unsafe_image.exists())
         self.assertFalse(missing_path_image.exists())
 
+    def test_image_global_concurrency_defaults_to_three(self) -> None:
+        store = self._with_temp_config()
+
+        self.assertEqual(store.image_global_concurrency, 3)
+        self.assertEqual(store.get()["image_global_concurrency"], 3)
+
+    def test_update_image_global_concurrency_setting(self) -> None:
+        store = self._with_temp_config()
+
+        self.assertEqual(store.update({"image_global_concurrency": 5})["image_global_concurrency"], 5)
+        self.assertEqual(store.image_global_concurrency, 5)
+
+    def test_invalid_image_global_concurrency_is_normalized(self) -> None:
+        store = self._with_temp_config({"image_global_concurrency": "invalid"})
+
+        self.assertEqual(store.image_global_concurrency, 3)
+        self.assertEqual(store.update({"image_global_concurrency": 0})["image_global_concurrency"], 1)
+        self.assertEqual(store.image_global_concurrency, 1)
 
 if __name__ == "__main__":
     unittest.main()

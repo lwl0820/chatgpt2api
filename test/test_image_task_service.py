@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import tempfile
 import time
 import unittest
@@ -26,12 +27,13 @@ def wait_for_task(service: ImageTaskService, identity: dict[str, object], task_i
 
 
 class ImageTaskServiceTests(unittest.TestCase):
-    def make_service(self, path: Path, handler=None) -> ImageTaskService:
+    def make_service(self, path: Path, handler=None, edit_handler=None, global_concurrency: int = 3) -> ImageTaskService:
         return ImageTaskService(
             path,
             generation_handler=handler or (lambda _payload: {"data": [{"url": "http://example.test/image.png"}]}),
-            edit_handler=handler or (lambda _payload: {"data": [{"url": "http://example.test/edit.png"}]}),
+            edit_handler=edit_handler or handler or (lambda _payload: {"data": [{"url": "http://example.test/edit.png"}]}),
             retention_days_getter=lambda: 30,
+            global_concurrency_getter=lambda: global_concurrency,
         )
 
     def test_duplicate_submit_uses_existing_task(self):
@@ -143,6 +145,111 @@ class ImageTaskServiceTests(unittest.TestCase):
 
             self.assertEqual([item["status"] for item in result["items"]], ["error", "error"])
             self.assertTrue(all("已中断" in item.get("error", "") for item in result["items"]))
+
+    def test_global_concurrency_keeps_extra_tasks_queued_until_slot_releases(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            release_first = threading.Event()
+            first_started = threading.Event()
+            prompts: list[str] = []
+
+            def handler(payload):
+                prompt = str(payload.get("prompt") or "")
+                prompts.append(prompt)
+                if prompt == "first":
+                    first_started.set()
+                    release_first.wait(timeout=2)
+                return {"data": [{"url": f"http://example.test/{prompt}.png"}]}
+
+            service = self.make_service(Path(tmp_dir) / "image_tasks.json", handler, global_concurrency=1)
+            service.submit_generation(
+                OWNER,
+                client_task_id="task-1",
+                prompt="first",
+                model="gpt-image-2",
+                size=None,
+                base_url="http://local.test",
+            )
+            self.assertTrue(first_started.wait(timeout=2))
+
+            queued = service.submit_generation(
+                OWNER,
+                client_task_id="task-2",
+                prompt="second",
+                model="gpt-image-2",
+                size=None,
+                base_url="http://local.test",
+            )
+            duplicate = service.submit_generation(
+                OWNER,
+                client_task_id="task-2",
+                prompt="second",
+                model="gpt-image-2",
+                size=None,
+                base_url="http://local.test",
+            )
+
+            self.assertEqual(queued["status"], "queued")
+            self.assertEqual(duplicate["status"], "queued")
+            self.assertEqual(prompts, ["first"])
+
+            release_first.set()
+            first = wait_for_task(service, OWNER, "task-1", "success")
+            second = wait_for_task(service, OWNER, "task-2", "success")
+
+            self.assertEqual(first["data"][0]["url"], "http://example.test/first.png")
+            self.assertEqual(second["data"][0]["url"], "http://example.test/second.png")
+            self.assertEqual(prompts, ["first", "second"])
+
+    def test_global_concurrency_is_shared_by_generation_and_edit_tasks(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            release_generation = threading.Event()
+            generation_started = threading.Event()
+            edit_started = threading.Event()
+
+            def generation_handler(_payload):
+                generation_started.set()
+                release_generation.wait(timeout=2)
+                return {"data": [{"url": "http://example.test/generated.png"}]}
+
+            def edit_handler(_payload):
+                edit_started.set()
+                return {"data": [{"url": "http://example.test/edited.png"}]}
+
+            service = self.make_service(
+                Path(tmp_dir) / "image_tasks.json",
+                generation_handler,
+                edit_handler=edit_handler,
+                global_concurrency=1,
+            )
+            service.submit_generation(
+                OWNER,
+                client_task_id="generate-task",
+                prompt="cat",
+                model="gpt-image-2",
+                size=None,
+                base_url="http://local.test",
+            )
+            self.assertTrue(generation_started.wait(timeout=2))
+
+            edit = service.submit_edit(
+                OWNER,
+                client_task_id="edit-task",
+                prompt="make it blue",
+                model="gpt-image-2",
+                size=None,
+                base_url="http://local.test",
+                images=[(b"image", "image.png", "image/png")],
+            )
+
+            self.assertEqual(edit["status"], "queued")
+            self.assertFalse(edit_started.wait(timeout=0.05))
+
+            release_generation.set()
+            wait_for_task(service, OWNER, "generate-task", "success")
+            edited = wait_for_task(service, OWNER, "edit-task", "success")
+
+            self.assertTrue(edit_started.is_set())
+            self.assertEqual(edited["data"][0]["url"], "http://example.test/edited.png")
 
 
 if __name__ == "__main__":

@@ -86,13 +86,17 @@ class ImageTaskService:
         generation_handler: Callable[[dict[str, Any]], dict[str, Any]] = openai_v1_image_generations.handle,
         edit_handler: Callable[[dict[str, Any]], dict[str, Any]] = openai_v1_image_edit.handle,
         retention_days_getter: Callable[[], int] | None = None,
+        global_concurrency_getter: Callable[[], int] | None = None,
     ):
         self.path = path
         self.generation_handler = generation_handler
         self.edit_handler = edit_handler
         self.retention_days_getter = retention_days_getter or (lambda: config.image_retention_days)
+        self.global_concurrency_getter = global_concurrency_getter or (lambda: config.image_global_concurrency)
         self._lock = threading.RLock()
         self._tasks: dict[str, dict[str, Any]] = {}
+        self._pending_runs: dict[str, dict[str, Any]] = {}
+        self._running_keys: set[str] = set()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
             self._tasks = self._load_locked()
@@ -181,7 +185,7 @@ class ImageTaskService:
         owner = _owner_id(identity)
         key = _task_key(owner, task_id)
         now = _now_iso()
-        should_start = False
+        start_args: list[tuple[str, str, dict[str, Any], dict[str, object], str]] = []
         with self._lock:
             cleaned = self._cleanup_locked()
             task = self._tasks.get(key)
@@ -200,18 +204,66 @@ class ImageTaskService:
                 "updated_at": now,
             }
             self._tasks[key] = task
+            self._pending_runs[key] = {
+                "mode": mode,
+                "payload": payload,
+                "identity": dict(identity),
+                "model": _clean(payload.get("model"), "gpt-image-2"),
+            }
             self._save_locked()
-            should_start = True
+            start_args = self._schedule_locked()
+            public_task = _public_task(task)
 
-        if should_start:
+        self._start_threads(start_args)
+        return public_task
+
+    def _start_threads(self, start_args: list[tuple[str, str, dict[str, Any], dict[str, object], str]]) -> None:
+        for key, mode, payload, identity, model in start_args:
+            task_id = key.split(":", 1)[-1]
             thread = threading.Thread(
                 target=self._run_task,
-                args=(key, mode, payload, dict(identity), _clean(payload.get("model"), "gpt-image-2")),
+                args=(key, mode, payload, identity, model),
                 name=f"image-task-{task_id[:16]}",
                 daemon=True,
             )
             thread.start()
-        return _public_task(task)
+
+    def _schedule_locked(self) -> list[tuple[str, str, dict[str, Any], dict[str, object], str]]:
+        try:
+            limit = max(1, int(self.global_concurrency_getter()))
+        except Exception:
+            limit = 3
+        available = max(0, limit - len(self._running_keys))
+        if available <= 0 or not self._pending_runs:
+            return []
+
+        pending_keys = sorted(
+            self._pending_runs,
+            key=lambda item: (
+                _timestamp(self._tasks.get(item, {}).get("created_at")),
+                str(self._tasks.get(item, {}).get("id") or ""),
+            ),
+        )
+        start_args: list[tuple[str, str, dict[str, Any], dict[str, object], str]] = []
+        for pending_key in pending_keys[:available]:
+            task = self._tasks.get(pending_key)
+            run = self._pending_runs.pop(pending_key, None)
+            if task is None or run is None:
+                continue
+            task["status"] = TASK_STATUS_RUNNING
+            task["error"] = ""
+            task["updated_at"] = _now_iso()
+            self._running_keys.add(pending_key)
+            start_args.append((
+                pending_key,
+                str(run.get("mode") or "generate"),
+                run.get("payload") if isinstance(run.get("payload"), dict) else {},
+                run.get("identity") if isinstance(run.get("identity"), dict) else {},
+                _clean(run.get("model"), "gpt-image-2"),
+            ))
+        if start_args:
+            self._save_locked()
+        return start_args
 
     def _run_task(
         self,
@@ -222,7 +274,6 @@ class ImageTaskService:
         model: str,
     ) -> None:
         started = time.time()
-        self._update_task(key, status=TASK_STATUS_RUNNING, error="")
         try:
             handler = self.edit_handler if mode == "edit" else self.generation_handler
             result = handler(payload)
@@ -255,6 +306,11 @@ class ImageTaskService:
                 status="failed",
                 error=error_message,
             )
+        finally:
+            with self._lock:
+                self._running_keys.discard(key)
+                start_args = self._schedule_locked()
+            self._start_threads(start_args)
 
     def _log_call(
         self,
@@ -371,6 +427,8 @@ class ImageTaskService:
         ]
         for key in removed_keys:
             self._tasks.pop(key, None)
+            self._pending_runs.pop(key, None)
+            self._running_keys.discard(key)
         return bool(removed_keys)
 
 

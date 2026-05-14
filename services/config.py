@@ -205,6 +205,13 @@ class ConfigStore:
             return 3
 
     @property
+    def image_global_concurrency(self) -> int:
+        try:
+            return max(1, int(self.data.get("image_global_concurrency", 3)))
+        except (TypeError, ValueError):
+            return 3
+
+    @property
     def image_cleanup_skip_kept(self) -> bool:
         return _normalize_bool(self.data.get("image_cleanup_skip_kept"), False)
 
@@ -327,6 +334,7 @@ class ConfigStore:
         data["image_retention_days"] = self.image_retention_days
         data["image_poll_timeout_secs"] = self.image_poll_timeout_secs
         data["image_account_concurrency"] = self.image_account_concurrency
+        data["image_global_concurrency"] = self.image_global_concurrency
         data["image_cleanup_skip_kept"] = self.image_cleanup_skip_kept
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
         data["auto_remove_rate_limited_accounts"] = self.auto_remove_rate_limited_accounts
@@ -346,6 +354,7 @@ class ConfigStore:
         next_data.update(dict(data or {}))
         if "backup" in next_data:
             next_data["backup"] = _normalize_backup_settings(next_data.get("backup"))
+        next_data["image_global_concurrency"] = _normalize_positive_int(next_data.get("image_global_concurrency"), 3, 1)
         next_data["image_cleanup_skip_kept"] = _normalize_bool(next_data.get("image_cleanup_skip_kept"), False)
         next_data.pop("backup_state", None)
         self.data = next_data
