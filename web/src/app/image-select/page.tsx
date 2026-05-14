@@ -21,6 +21,7 @@ import { getImageSelectionCandidatePrompt } from "@/lib/image-selection-prompt";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
 import {
+  applyImageSelectionSessionDelta,
   deleteImageSelectionSession,
   getImageSelectionSessionStats,
   listImageSelectionSessions,
@@ -28,6 +29,7 @@ import {
   sortImageSelectionSessions,
   streamImageSelectionSession,
   type ImageSelectionCandidate,
+  type ImageSelectionSessionDelta,
   type ImageSelectionSession,
 } from "@/store/image-selection-sessions";
 
@@ -328,7 +330,12 @@ function ImageSelectContent() {
     [hiddenCandidateId, selectedSession],
   );
   const currentCandidate =
-    readyCandidates.find((candidate) => candidate.id === currentCandidateId) ?? readyCandidates[0] ?? null;
+    selectedSession?.candidates.find((candidate) =>
+      candidate.id === currentCandidateId
+      && candidate.status === "ready"
+      && candidate.url
+      && candidate.id !== hiddenCandidateId
+    ) ?? null;
   const hasLoading = Boolean(selectedSession?.candidates.some((candidate) => candidate.status === "loading"));
   const reviewCandidates = selectedSession?.candidates.filter((candidate) => candidate.status === "ready" || candidate.status === "loading") ?? [];
 
@@ -338,7 +345,7 @@ function ImageSelectContent() {
       setHiddenCandidateId(null);
       return;
     }
-    if (readyCandidates.some((candidate) => candidate.id === currentCandidateId)) {
+    if (currentCandidateId && selectedSession.candidates.some((candidate) => candidate.id === currentCandidateId)) {
       return;
     }
     setCurrentCandidateId(readyCandidates[0]?.id ?? null);
@@ -389,14 +396,15 @@ function ImageSelectContent() {
   }, [currentCandidate, readyCandidates]);
 
   const persistSession = useCallback(async (session: ImageSelectionSession) => {
-    const nextSessions = sortImageSelectionSessions([session, ...sessionsRef.current.filter((item) => item.id !== session.id)]);
+    const nextSession = { ...session, updatedAt: new Date().toISOString() };
+    const nextSessions = sortImageSelectionSessions([nextSession, ...sessionsRef.current.filter((item) => item.id !== session.id)]);
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
-    savingSessionIdsRef.current.add(session.id);
+    savingSessionIdsRef.current.add(nextSession.id);
     try {
-      await saveImageSelectionSession(session);
+      await saveImageSelectionSession(nextSession);
     } finally {
-      savingSessionIdsRef.current.delete(session.id);
+      savingSessionIdsRef.current.delete(nextSession.id);
     }
   }, []);
 
@@ -548,6 +556,11 @@ function ImageSelectContent() {
     if (!selectedSession || !currentCandidate) {
       return;
     }
+    const currentIndex = readyCandidates.findIndex((candidate) => candidate.id === currentCandidate.id);
+    const nextCandidate = [
+      ...readyCandidates.slice(currentIndex >= 0 ? currentIndex + 1 : 0),
+      ...readyCandidates.slice(0, currentIndex >= 0 ? currentIndex : 0),
+    ].find((candidate) => candidate.id !== currentCandidate.id) ?? null;
     setHiddenCandidateId(currentCandidate.id);
     const now = new Date().toISOString();
     await updateSession(selectedSession.id, (session) => {
@@ -571,8 +584,8 @@ function ImageSelectContent() {
         ].slice(-MAX_DECISION_HISTORY),
       };
     });
-    setCurrentCandidateId(null);
-  }, [currentCandidate, selectedSession, updateSession]);
+    setCurrentCandidateId(nextCandidate?.id ?? null);
+  }, [currentCandidate, readyCandidates, selectedSession, updateSession]);
 
   const undoLastDecision = useCallback(async () => {
     if (!selectedSession) {
@@ -697,12 +710,30 @@ function ImageSelectContent() {
       setSessions(nextSessions);
     };
 
+    const applyDelta = (delta: ImageSelectionSessionDelta) => {
+      if (cancelled || savingSessionIdsRef.current.has(delta.id)) {
+        return;
+      }
+      const current = sessionsRef.current.find((session) => session.id === delta.id);
+      if (!current) {
+        return;
+      }
+      if (delta.updatedAt && delta.updatedAt.localeCompare(current.updatedAt) < 0) {
+        return;
+      }
+      const nextSession = applyImageSelectionSessionDelta(current, delta);
+      const nextSessions = sortImageSelectionSessions([nextSession, ...sessionsRef.current.filter((session) => session.id !== nextSession.id)]);
+      sessionsRef.current = nextSessions;
+      setSessions(nextSessions);
+    };
+
     const subscribe = async () => {
       while (!controller.signal.aborted) {
         try {
           await streamImageSelectionSession(selectedSessionId, {
             signal: controller.signal,
             onSession: applySession,
+            onDelta: applyDelta,
             onDeleted: (id) => {
               if (!id || cancelled) return;
               const nextSessions = sessionsRef.current.filter((session) => session.id !== id);

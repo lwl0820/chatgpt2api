@@ -201,6 +201,7 @@ type BackendSessionItemResponse<T> = {
 type BackendSessionStreamOptions<T> = {
   signal: AbortSignal;
   onSession: (item: T) => void;
+  onDelta?: (delta: Record<string, unknown>) => void;
   onDeleted?: (id: string) => void;
 };
 
@@ -455,6 +456,8 @@ export async function streamBackendSession<T>(kind: BackendSessionKind, id: stri
       const payload = JSON.parse(data);
       if (event === "session") {
         options.onSession(payload as T);
+      } else if (event === "session-delta") {
+        options.onDelta?.(payload as Record<string, unknown>);
       } else if (event === "deleted") {
         options.onDeleted?.(String(payload.id || ""));
       }

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from services.session_service import SESSION_KIND_IMAGE_CONVERSATION, SessionService
+from services.session_service import SESSION_KIND_IMAGE_CONVERSATION, SESSION_KIND_IMAGE_SELECTION, SessionService
 
 
 class SessionServiceTests(unittest.TestCase):
@@ -64,6 +64,39 @@ class SessionServiceTests(unittest.TestCase):
         self.assertEqual(deleted_event, {"event": "deleted", "id": "session-1"})
 
         self.service.unsubscribe("alice", SESSION_KIND_IMAGE_CONVERSATION, "session-1", subscriber)
+
+    def test_existing_session_save_publishes_delta(self):
+        self.service.save_session(
+            self.alice,
+            SESSION_KIND_IMAGE_SELECTION,
+            {
+                "id": "session-1",
+                "title": "Cat",
+                "prompt": "cat",
+                "candidates": [{"id": "candidate-1", "status": "loading", "createdAt": "now"}],
+                "updatedAt": "2026-01-01T00:00:00",
+            },
+        )
+        subscriber = self.service.subscribe("alice", SESSION_KIND_IMAGE_SELECTION, "session-1")
+
+        self.service.save_session(
+            self.alice,
+            SESSION_KIND_IMAGE_SELECTION,
+            {
+                "id": "session-1",
+                "title": "Cat",
+                "prompt": "cat",
+                "candidates": [{"id": "candidate-1", "status": "ready", "url": "/images/cat.png", "createdAt": "now"}],
+                "updatedAt": "2026-01-01T00:00:01",
+            },
+        )
+
+        event = subscriber.get_nowait()
+        self.assertEqual(event["event"], "session-delta")
+        self.assertEqual(event["delta"]["id"], "session-1")
+        self.assertEqual(event["delta"]["updatedAt"], "2026-01-01T00:00:01")
+        self.assertEqual(event["delta"]["candidates"]["upsert"][0]["id"], "candidate-1")
+        self.assertNotIn("title", event["delta"].get("fields", {}))
 
 
 if __name__ == "__main__":

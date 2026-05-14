@@ -81,6 +81,8 @@ def create_router() -> APIRouter:
                     event_name = str(message.get("event") or "message")
                     if event_name == "session":
                         yield _format_sse("session", message.get("item") if isinstance(message.get("item"), dict) else {})
+                    elif event_name == "session-delta":
+                        yield _format_sse("session-delta", message.get("delta") if isinstance(message.get("delta"), dict) else {})
                     elif event_name == "deleted":
                         yield _format_sse("deleted", {"id": message.get("id")})
                     else:

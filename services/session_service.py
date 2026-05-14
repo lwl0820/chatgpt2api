@@ -44,6 +44,10 @@ def session_timestamp(value: object) -> float:
     return _timestamp(value)
 
 
+def _candidate_id(candidate: object) -> str:
+    return _clean(candidate.get("id") if isinstance(candidate, dict) else "")
+
+
 class SessionService:
     def __init__(self, path: Path):
         self.path = path
@@ -77,11 +81,13 @@ class SessionService:
     def save_session(self, identity: dict[str, object], kind: str, item: dict[str, Any]) -> dict[str, Any]:
         owner = _owner_id(identity)
         session = self._normalize_session(owner, kind, item)
+        key = _session_key(owner, session["kind"], session["id"])
         with self._lock:
-            self._sessions[_session_key(owner, session["kind"], session["id"])] = session
+            previous = self._public_session(self._sessions[key]) if key in self._sessions else None
+            self._sessions[key] = session
             self._save_locked()
             item = self._public_session(session)
-        self._publish(owner, session["kind"], session["id"], {"event": "session", "item": item})
+        self._publish_session_change(owner, session["kind"], session["id"], previous, item)
         return item
 
     def delete_session(self, identity: dict[str, object], kind: str, session_id: str) -> bool:
@@ -108,11 +114,13 @@ class SessionService:
     def save_owner_session(self, owner_id: str, kind: str, item: dict[str, Any]) -> dict[str, Any]:
         owner = _clean(owner_id) or "anonymous"
         session = self._normalize_session(owner, kind, item)
+        key = _session_key(owner, session["kind"], session["id"])
         with self._lock:
-            self._sessions[_session_key(owner, session["kind"], session["id"])] = session
+            previous = self._public_session(self._sessions[key]) if key in self._sessions else None
+            self._sessions[key] = session
             self._save_locked()
             item = self._public_session(session)
-        self._publish(owner, session["kind"], session["id"], {"event": "session", "item": item})
+        self._publish_session_change(owner, session["kind"], session["id"], previous, item)
         return item
 
     def subscribe(self, owner_id: str, kind: str, session_id: str) -> queue.Queue[dict[str, Any]]:
@@ -149,6 +157,49 @@ class SessionService:
                 subscriber.put_nowait(dict(event))
             except Exception:
                 pass
+
+    def _publish_session_change(
+        self,
+        owner_id: str,
+        kind: str,
+        session_id: str,
+        previous: dict[str, Any] | None,
+        item: dict[str, Any],
+    ) -> None:
+        if previous is None:
+            self._publish(owner_id, kind, session_id, {"event": "session", "item": item})
+            return
+        self._publish(owner_id, kind, session_id, {"event": "session-delta", "delta": self._build_delta(previous, item)})
+
+    def _build_delta(self, previous: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
+        fields: dict[str, Any] = {}
+        for key, value in item.items():
+            if key in {"id", "candidates"}:
+                continue
+            if previous.get(key) != value:
+                fields[key] = value
+
+        delta: dict[str, Any] = {"id": item.get("id"), "updatedAt": item.get("updatedAt")}
+        if fields:
+            delta["fields"] = fields
+
+        previous_candidates = previous.get("candidates")
+        next_candidates = item.get("candidates")
+        if isinstance(previous_candidates, list) and isinstance(next_candidates, list):
+            previous_by_id = {_candidate_id(candidate): candidate for candidate in previous_candidates if _candidate_id(candidate)}
+            next_by_id = {_candidate_id(candidate): candidate for candidate in next_candidates if _candidate_id(candidate)}
+            upsert = [candidate for candidate in next_candidates if _candidate_id(candidate) and previous_by_id.get(_candidate_id(candidate)) != candidate]
+            remove = [candidate_id for candidate_id in previous_by_id if candidate_id not in next_by_id]
+            candidates: dict[str, Any] = {}
+            if upsert:
+                candidates["upsert"] = upsert
+            if remove:
+                candidates["remove"] = remove
+            if candidates:
+                delta["candidates"] = candidates
+        elif previous_candidates != next_candidates:
+            delta.setdefault("fields", {})["candidates"] = next_candidates
+        return delta
 
     def _normalize_session(self, owner: str, kind: str, item: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(item, dict):
