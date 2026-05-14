@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, Download, ImageIcon, LoaderCircle, Maximize2, Pause, Play, Settings2, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, Download, ImageIcon, LoaderCircle, Maximize2, Pause, Play, RotateCcw, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,6 @@ import {
   getImageSelectionSessionStats,
   listImageSelectionSessions,
   saveImageSelectionSession,
-  sortImageSelectionSessions,
   streamImageSelectionSession,
   type ImageSelectionCandidate,
   type ImageSelectionSessionDelta,
@@ -395,9 +394,25 @@ function ImageSelectContent() {
     }
   }, [currentCandidate, readyCandidates]);
 
-  const persistSession = useCallback(async (session: ImageSelectionSession) => {
-    const nextSession = { ...session, updatedAt: new Date().toISOString() };
-    const nextSessions = sortImageSelectionSessions([nextSession, ...sessionsRef.current.filter((item) => item.id !== session.id)]);
+  const reloadSessions = useCallback(async (preferredSelectedSessionId?: string | null) => {
+    const storedSessions = await listImageSelectionSessions();
+    sessionsRef.current = storedSessions;
+    setSessions(storedSessions);
+    setSelectedSessionId((current) => {
+      const targetId = preferredSelectedSessionId === undefined ? current : preferredSelectedSessionId;
+      if (targetId && storedSessions.some((session) => session.id === targetId)) {
+        return targetId;
+      }
+      return storedSessions[0]?.id ?? null;
+    });
+    return storedSessions;
+  }, []);
+
+  const persistSession = useCallback(async (session: ImageSelectionSession, options?: { touchUpdatedAt?: boolean }) => {
+    const nextSession = options?.touchUpdatedAt === false ? session : { ...session, updatedAt: new Date().toISOString() };
+    const nextSessions = sessionsRef.current.some((item) => item.id === nextSession.id)
+      ? sessionsRef.current.map((item) => item.id === nextSession.id ? nextSession : item)
+      : [...sessionsRef.current, nextSession];
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
     savingSessionIdsRef.current.add(nextSession.id);
@@ -421,16 +436,21 @@ function ImageSelectContent() {
     }
     setDeleteTargetId(null);
     await deleteImageSelectionSession(id);
+    await reloadSessions();
     toast.success("选图会话已删除，图片文件已保留");
-  }, [selectedSessionId]);
+  }, [reloadSessions, selectedSessionId]);
 
-  const updateSession = useCallback(async (sessionId: string, updater: (session: ImageSelectionSession) => ImageSelectionSession) => {
+  const updateSession = useCallback(async (
+    sessionId: string,
+    updater: (session: ImageSelectionSession) => ImageSelectionSession,
+    options?: { touchUpdatedAt?: boolean },
+  ) => {
     const current = sessionsRef.current.find((session) => session.id === sessionId);
     if (!current) {
       return null;
     }
     const nextSession = updater(current);
-    await persistSession(nextSession);
+    await persistSession(nextSession, options);
     return nextSession;
   }, [persistSession]);
 
@@ -485,9 +505,9 @@ function ImageSelectContent() {
     setLoadedOriginalKey(null);
     setPrompt("");
     await persistSession(session);
-    setSelectedSessionId(session.id);
+    await reloadSessions(session.id);
     toast.success("选图已开始");
-  }, [failureLimit, imageSize, persistSession, prompt, queueLimit]);
+  }, [failureLimit, imageSize, persistSession, prompt, queueLimit, reloadSessions]);
 
   const handlePause = useCallback(async () => {
     if (!selectedSession) {
@@ -506,6 +526,18 @@ function ImageSelectContent() {
       consecutiveFailures: 0,
       lastError: undefined,
     }));
+  }, [selectedSession, updateSession]);
+
+  const handleResetStats = useCallback(async () => {
+    if (!selectedSession) {
+      return;
+    }
+    await updateSession(
+      selectedSession.id,
+      (session) => ({ ...session, statsResetAt: new Date().toISOString() }),
+      { touchUpdatedAt: false },
+    );
+    toast.success("统计已重置");
   }, [selectedSession, updateSession]);
 
   const openSessionConfig = useCallback(() => {
@@ -540,9 +572,10 @@ function ImageSelectContent() {
       consecutiveFailures: Math.min(session.consecutiveFailures, nextFailureLimit),
       updatedAt: new Date().toISOString(),
     }));
+    await reloadSessions(selectedSession.id);
     setConfigOpen(false);
     toast.success("会话配置已更新");
-  }, [configFailureLimit, configPrompt, configQueueLimit, configTitle, selectedSession, updateSession]);
+  }, [configFailureLimit, configPrompt, configQueueLimit, configTitle, reloadSessions, selectedSession, updateSession]);
 
   const selectSession = useCallback((id: string) => {
     setSelectedSessionId(id);
@@ -705,7 +738,9 @@ function ImageSelectContent() {
       if (current && nextSession.updatedAt.localeCompare(current.updatedAt) < 0) {
         return;
       }
-      const nextSessions = sortImageSelectionSessions([nextSession, ...sessionsRef.current.filter((session) => session.id !== nextSession.id)]);
+      const nextSessions = current
+        ? sessionsRef.current.map((session) => session.id === nextSession.id ? nextSession : session)
+        : [...sessionsRef.current, nextSession];
       sessionsRef.current = nextSessions;
       setSessions(nextSessions);
     };
@@ -722,7 +757,7 @@ function ImageSelectContent() {
         return;
       }
       const nextSession = applyImageSelectionSessionDelta(current, delta);
-      const nextSessions = sortImageSelectionSessions([nextSession, ...sessionsRef.current.filter((session) => session.id !== nextSession.id)]);
+      const nextSessions = sessionsRef.current.map((session) => session.id === nextSession.id ? nextSession : session);
       sessionsRef.current = nextSessions;
       setSessions(nextSessions);
     };
@@ -910,6 +945,10 @@ function ImageSelectContent() {
                   <Settings2 className="size-4" />
                   配置会话
                 </Button>
+                <Button variant="outline" className="rounded-xl border-stone-200 bg-white" disabled={!selectedSession} onClick={() => void handleResetStats()}>
+                  <RotateCcw className="size-4" />
+                  重置统计
+                </Button>
                 <Button variant="outline" className="rounded-xl border-stone-200 bg-white" disabled={!selectedSession} onClick={() => setIsImmersive(true)}>
                   <Maximize2 className="size-4" />
                   沉浸选图
@@ -987,6 +1026,14 @@ function ImageSelectContent() {
                     继续
                   </Button>
                 )}
+                <Button
+                  variant="outline"
+                  className="rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20"
+                  onClick={() => void handleResetStats()}
+                >
+                  <RotateCcw className="size-4" />
+                  重置统计
+                </Button>
                 <Button
                   variant="outline"
                   className="rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20"

@@ -23,6 +23,7 @@ export type ImageSelectionCandidate = {
   error?: string;
   createdAt: string;
   decidedAt?: string;
+  errorAt?: string;
 };
 
 export type ImageSelectionDecisionHistoryItem = {
@@ -45,6 +46,7 @@ export type ImageSelectionSession = {
   createdAt: string;
   updatedAt: string;
   consecutiveFailures: number;
+  statsResetAt?: string;
   lastError?: string;
 };
 
@@ -88,6 +90,7 @@ function normalizeCandidate(candidate: ImageSelectionCandidate & Record<string, 
     error: typeof candidate.error === "string" ? candidate.error : undefined,
     createdAt: String(candidate.createdAt || new Date().toISOString()),
     decidedAt: typeof candidate.decidedAt === "string" && candidate.decidedAt ? candidate.decidedAt : undefined,
+    errorAt: typeof candidate.errorAt === "string" && candidate.errorAt ? candidate.errorAt : undefined,
   };
 }
 
@@ -133,6 +136,7 @@ export function normalizeImageSelectionSession(session: ImageSelectionSession & 
     createdAt: typeof session.createdAt === "string" ? session.createdAt : "",
     updatedAt: typeof session.updatedAt === "string" ? session.updatedAt : "",
     consecutiveFailures: Math.max(0, Number(session.consecutiveFailures || 0)),
+    statsResetAt: typeof session.statsResetAt === "string" && session.statsResetAt ? session.statsResetAt : undefined,
     lastError: typeof session.lastError === "string" ? session.lastError : undefined,
   };
 }
@@ -143,8 +147,21 @@ export function buildImageSelectionTitle(prompt: string) {
 }
 
 export function getImageSelectionSessionStats(session: ImageSelectionSession): ImageSelectionSessionStats {
+  const resetAt = session.statsResetAt || "";
   const stats = session.candidates.reduce(
     (acc, candidate) => {
+      if (candidate.status === "kept" || candidate.status === "discarded") {
+        if (!resetAt || (candidate.decidedAt || "").localeCompare(resetAt) > 0) {
+          acc[candidate.status] += 1;
+        }
+        return acc;
+      }
+      if (candidate.status === "error") {
+        if (!resetAt || (candidate.errorAt || candidate.createdAt || "").localeCompare(resetAt) > 0) {
+          acc.error += 1;
+        }
+        return acc;
+      }
       acc[candidate.status] += 1;
       return acc;
     },
@@ -181,10 +198,6 @@ export function extractManagedImageRel(url: string): string {
     }
   }
   return "";
-}
-
-export function sortImageSelectionSessions(sessions: ImageSelectionSession[]) {
-  return [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export function normalizeImageSelectionSessionDelta(delta: ImageSelectionSessionDelta & Record<string, unknown>): ImageSelectionSessionDelta {
@@ -236,7 +249,7 @@ export function applyImageSelectionSessionDelta(session: ImageSelectionSession, 
 
 export async function listImageSelectionSessions(): Promise<ImageSelectionSession[]> {
   const data = await fetchBackendSessions<ImageSelectionSession & Record<string, unknown>>(IMAGE_SELECTION_SESSION_KIND);
-  return sortImageSelectionSessions(data.items.map(normalizeImageSelectionSession));
+  return data.items.map(normalizeImageSelectionSession);
 }
 
 export async function getImageSelectionSession(id: string): Promise<ImageSelectionSession | null> {

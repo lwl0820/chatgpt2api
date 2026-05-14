@@ -65,6 +65,32 @@ class SessionServiceTests(unittest.TestCase):
 
         self.service.unsubscribe("alice", SESSION_KIND_IMAGE_CONVERSATION, "session-1", subscriber)
 
+    def test_list_sessions_sorts_by_parsed_updated_at(self):
+        self.service.save_session(
+            self.alice,
+            SESSION_KIND_IMAGE_SELECTION,
+            {
+                "id": "older",
+                "title": "Older",
+                "updatedAt": "2026-01-01T01:00:00+01:00",
+                "createdAt": "2026-01-01T01:00:00+01:00",
+            },
+        )
+        self.service.save_session(
+            self.alice,
+            SESSION_KIND_IMAGE_SELECTION,
+            {
+                "id": "newer",
+                "title": "Newer",
+                "updatedAt": "2026-01-01T00:30:00Z",
+                "createdAt": "2026-01-01T00:30:00Z",
+            },
+        )
+
+        listed = self.service.list_sessions(self.alice, SESSION_KIND_IMAGE_SELECTION)["items"]
+
+        self.assertEqual([item["id"] for item in listed], ["newer", "older"])
+
     def test_existing_session_save_publishes_delta(self):
         self.service.save_session(
             self.alice,

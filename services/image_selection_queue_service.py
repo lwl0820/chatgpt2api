@@ -52,7 +52,7 @@ def _task_to_candidate(candidate: dict[str, Any], task: dict[str, Any]) -> dict[
         url = _clean(first.get("url"))
         b64_json = _clean(first.get("b64_json"))
         if not url and not b64_json:
-            return {**candidate, "taskId": task.get("id"), "status": "error", "error": "未返回图片数据"}
+            return {**candidate, "taskId": task.get("id"), "status": "error", "error": "未返回图片数据", "errorAt": _now_iso()}
         image_url = url or f"data:image/png;base64,{b64_json}"
         return {
             **candidate,
@@ -64,7 +64,7 @@ def _task_to_candidate(candidate: dict[str, Any], task: dict[str, Any]) -> dict[
             "error": None,
         }
     if status == "error":
-        return {**candidate, "taskId": task.get("id"), "status": "error", "error": task.get("error") or "生成失败"}
+        return {**candidate, "taskId": task.get("id"), "status": "error", "error": task.get("error") or "生成失败", "errorAt": _now_iso()}
     return {**candidate, "taskId": task.get("id"), "status": "loading", "error": None}
 
 
@@ -148,7 +148,7 @@ class ImageSelectionQueueService:
             task_id = _clean(candidate.get("taskId"))
             next_candidate = candidate
             if candidate.get("status") == "loading" and task_id in missing_ids:
-                next_candidate = {**candidate, "status": "error", "error": "任务已丢失"}
+                next_candidate = {**candidate, "status": "error", "error": "任务已丢失", "errorAt": _now_iso()}
             elif candidate.get("status") == "loading" and task_id in tasks:
                 next_candidate = _task_to_candidate(candidate, tasks[task_id])
             changed = changed or next_candidate != candidate
@@ -182,7 +182,7 @@ class ImageSelectionQueueService:
         except Exception as exc:
             candidates = [candidate for candidate in session.get("candidates", []) if isinstance(candidate, dict)]
             next_candidates = [
-                {**candidate, "status": "error", "error": str(exc) or "提交生成任务失败"}
+                {**candidate, "status": "error", "error": str(exc) or "提交生成任务失败", "errorAt": _now_iso()}
                 if candidate.get("id") == candidate_id else candidate
                 for candidate in candidates
             ]

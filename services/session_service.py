@@ -67,7 +67,7 @@ class SessionService:
                 for session in self._sessions.values()
                 if session.get("owner_id") == owner and (normalized_kind is None or session.get("kind") == normalized_kind)
             ]
-        items.sort(key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
+        items.sort(key=lambda item: (session_timestamp(item.get("updatedAt")), _clean(item.get("id"))), reverse=True)
         return {"items": items}
 
     def get_session(self, identity: dict[str, object], kind: str, session_id: str) -> dict[str, Any] | None:
