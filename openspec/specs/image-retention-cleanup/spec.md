@@ -1,3 +1,8 @@
+## Purpose
+Define automatic local image retention cleanup and protection for kept image-selection candidates.
+
+## Requirements
+
 ### Requirement: Configurable automatic image retention cleanup
 The system SHALL automatically delete local image files older than the configured image retention window, and SHALL provide an admin setting that optionally excludes kept image-selection candidates from that automatic cleanup.
 
