@@ -25,6 +25,7 @@ import {
   getImageSelectionSessionStats,
   listImageSelectionSessions,
   saveImageSelectionSession,
+  sortImageSelectionSessions,
   streamImageSelectionSession,
   type ImageSelectionCandidate,
   type ImageSelectionSession,
@@ -43,11 +44,6 @@ const imageSizeOptions = [
   { value: "3:4", label: "3:4" },
   { value: "9:16", label: "9:16" },
 ];
-
-function timestamp(value: string) {
-  const time = new Date(value).getTime();
-  return Number.isFinite(time) ? time : 0;
-}
 
 function createId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -393,8 +389,7 @@ function ImageSelectContent() {
   }, [currentCandidate, readyCandidates]);
 
   const persistSession = useCallback(async (session: ImageSelectionSession) => {
-    const nextSessions = [session, ...sessionsRef.current.filter((item) => item.id !== session.id)]
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const nextSessions = sortImageSelectionSessions([session, ...sessionsRef.current.filter((item) => item.id !== session.id)]);
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
     savingSessionIdsRef.current.add(session.id);
@@ -490,7 +485,7 @@ function ImageSelectContent() {
     if (!selectedSession) {
       return;
     }
-    await updateSession(selectedSession.id, (session) => ({ ...session, status: "paused", updatedAt: new Date().toISOString() }));
+    await updateSession(selectedSession.id, (session) => ({ ...session, status: "paused" }));
   }, [selectedSession, updateSession]);
 
   const handleContinue = useCallback(async () => {
@@ -502,7 +497,6 @@ function ImageSelectContent() {
       status: "running",
       consecutiveFailures: 0,
       lastError: undefined,
-      updatedAt: new Date().toISOString(),
     }));
   }, [selectedSession, updateSession]);
 
@@ -570,7 +564,6 @@ function ImageSelectContent() {
       }
       return {
         ...session,
-        updatedAt: now,
         candidates,
         decisionHistory: [
           ...session.decisionHistory,
@@ -615,7 +608,6 @@ function ImageSelectContent() {
         ...session,
         candidates,
         decisionHistory: history,
-        updatedAt: new Date().toISOString(),
       };
     });
     if (restoredCandidateId) {
@@ -697,11 +689,10 @@ function ImageSelectContent() {
         return;
       }
       const current = sessionsRef.current.find((session) => session.id === nextSession.id);
-      if (current && timestamp(nextSession.updatedAt) < timestamp(current.updatedAt)) {
+      if (current && nextSession.updatedAt.localeCompare(current.updatedAt) < 0) {
         return;
       }
-      const nextSessions = [nextSession, ...sessionsRef.current.filter((session) => session.id !== nextSession.id)]
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      const nextSessions = sortImageSelectionSessions([nextSession, ...sessionsRef.current.filter((session) => session.id !== nextSession.id)]);
       sessionsRef.current = nextSessions;
       setSessions(nextSessions);
     };

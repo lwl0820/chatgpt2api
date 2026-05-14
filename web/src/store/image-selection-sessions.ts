@@ -120,8 +120,8 @@ export function normalizeImageSelectionSession(session: ImageSelectionSession & 
     status,
     candidates,
     decisionHistory,
-    createdAt: String(session.createdAt || new Date().toISOString()),
-    updatedAt: String(session.updatedAt || new Date().toISOString()),
+    createdAt: typeof session.createdAt === "string" ? session.createdAt : "",
+    updatedAt: typeof session.updatedAt === "string" ? session.updatedAt : "",
     consecutiveFailures: Math.max(0, Number(session.consecutiveFailures || 0)),
     lastError: typeof session.lastError === "string" ? session.lastError : undefined,
   };
@@ -173,13 +173,13 @@ export function extractManagedImageRel(url: string): string {
   return "";
 }
 
-function sortSessions(sessions: ImageSelectionSession[]) {
+export function sortImageSelectionSessions(sessions: ImageSelectionSession[]) {
   return [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function listImageSelectionSessions(): Promise<ImageSelectionSession[]> {
   const data = await fetchBackendSessions<ImageSelectionSession & Record<string, unknown>>(IMAGE_SELECTION_SESSION_KIND);
-  return sortSessions(data.items.map(normalizeImageSelectionSession));
+  return sortImageSelectionSessions(data.items.map(normalizeImageSelectionSession));
 }
 
 export async function getImageSelectionSession(id: string): Promise<ImageSelectionSession | null> {
