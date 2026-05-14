@@ -75,6 +75,20 @@ class ImageDownloadPromptTests(unittest.TestCase):
             },
         )
 
+    def _save_image_selection(self, rel: str, session_prompt: str, candidate_prompt: str | None = None) -> None:
+        candidate = {"id": "candidate-1", "status": "kept", "url": f"/images/{rel}"}
+        if candidate_prompt is not None:
+            candidate["prompt"] = candidate_prompt
+        self.session_module.session_service.save_session(
+            {"id": "alice"},
+            self.session_module.SESSION_KIND_IMAGE_SELECTION,
+            {
+                "id": "selection-1",
+                "prompt": session_prompt,
+                "candidates": [candidate],
+            },
+        )
+
     def test_single_download_appends_prompt_when_enabled(self) -> None:
         store = self._with_temp_services({"image_download_append_prompt": True})
         rel = "2026/01/01/cat.png"
@@ -116,6 +130,40 @@ class ImageDownloadPromptTests(unittest.TestCase):
 
         with zipfile.ZipFile(buf) as zf:
             self.assertEqual(zf.read("cat.png"), b"image")
+
+    def test_single_download_prefers_selection_candidate_prompt(self) -> None:
+        store = self._with_temp_services({"image_download_append_prompt": True})
+        rel = "2026/01/01/cat.png"
+        self._write_image(store, rel)
+        self._save_image_selection(rel, "dog", "cat")
+
+        response = self.image_module.get_image_download_response(rel)
+
+        self.assertIsInstance(response, Response)
+        self.assertTrue(response.body.endswith(b"cat\n-- end chatgpt2api prompt --\n"))
+        self.assertNotIn(b"dog\n-- end chatgpt2api prompt --\n", response.body)
+
+    def test_single_download_uses_selection_candidate_prompt_without_session_prompt(self) -> None:
+        store = self._with_temp_services({"image_download_append_prompt": True})
+        rel = "2026/01/01/cat.png"
+        self._write_image(store, rel)
+        self._save_image_selection(rel, "", "cat")
+
+        response = self.image_module.get_image_download_response(rel)
+
+        self.assertIsInstance(response, Response)
+        self.assertTrue(response.body.endswith(b"cat\n-- end chatgpt2api prompt --\n"))
+
+    def test_zip_download_falls_back_to_selection_session_prompt(self) -> None:
+        store = self._with_temp_services({"image_download_append_prompt": True})
+        rel = "2026/01/01/cat.png"
+        self._write_image(store, rel)
+        self._save_image_selection(rel, "dog")
+
+        buf = self.image_module.download_images_zip([rel])
+
+        with zipfile.ZipFile(buf) as zf:
+            self.assertTrue(zf.read("cat.png").endswith(b"dog\n-- end chatgpt2api prompt --\n"))
 
 
 if __name__ == "__main__":

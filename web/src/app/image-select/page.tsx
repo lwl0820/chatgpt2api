@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { downloadImageWithPrompt } from "@/lib/image-download";
+import { getImageSelectionCandidatePrompt } from "@/lib/image-selection-prompt";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
 import {
@@ -634,7 +635,7 @@ function ImageSelectContent() {
     const extension = currentCandidate.url.startsWith("data:") ? "png" : getExtensionFromUrl(currentCandidate.url);
     try {
       await downloadImageWithPrompt(currentCandidate.url, `${baseName}-${currentCandidate.id}.${extension}`, {
-        prompt: selectedSession.prompt,
+        prompt: getImageSelectionCandidatePrompt(currentCandidate, selectedSession),
         inferExtension: true,
       });
       await decideCurrent("kept");

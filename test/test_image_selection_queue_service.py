@@ -71,6 +71,7 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
         self.assertEqual(len(session["candidates"]), 2)
         self.assertEqual(len(self.task_service.submitted), 2)
         self.assertTrue(all(candidate["status"] == "loading" for candidate in session["candidates"]))
+        self.assertTrue(all(candidate["prompt"] == "cat" for candidate in session["candidates"]))
 
     def test_syncs_completed_task_result(self):
         self.save_selection({
@@ -79,7 +80,7 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
             "prompt": "cat",
             "queueLimit": 1,
             "failureLimit": 5,
-            "candidates": [{"id": "candidate-1", "taskId": "task-1", "status": "loading", "createdAt": "now"}],
+            "candidates": [{"id": "candidate-1", "taskId": "task-1", "status": "loading", "prompt": "cat", "createdAt": "now"}],
         })
         self.task_service.tasks["task-1"] = {
             "id": "task-1",
@@ -91,6 +92,7 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
 
         candidate = self.get_selection()["candidates"][0]
         self.assertEqual(candidate["status"], "ready")
+        self.assertEqual(candidate["prompt"], "cat")
         self.assertEqual(candidate["url"], "/images/2026/01/01/cat.png")
         self.assertEqual(candidate["rel"], "2026/01/01/cat.png")
 
@@ -137,7 +139,7 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
             "prompt": "cat",
             "queueLimit": 2,
             "failureLimit": 5,
-            "candidates": [{"id": "candidate-1", "status": "kept", "createdAt": "now"}],
+            "candidates": [{"id": "candidate-1", "status": "kept", "prompt": "cat", "createdAt": "now"}],
         })
         self.save_selection({
             **self.get_selection(),
@@ -150,6 +152,29 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
         self.assertEqual(self.task_service.submitted[0][1]["prompt"], "dog")
         self.assertEqual(session["candidates"][0]["id"], "candidate-1")
         self.assertEqual(session["candidates"][0]["status"], "kept")
+        self.assertEqual(session["candidates"][0]["prompt"], "cat")
+        self.assertEqual(session["candidates"][1]["prompt"], "dog")
+
+    def test_preserves_prompt_when_loading_candidate_syncs_after_session_prompt_update(self):
+        self.save_selection({
+            "id": "session-1",
+            "status": "running",
+            "prompt": "dog",
+            "queueLimit": 1,
+            "failureLimit": 5,
+            "candidates": [{"id": "candidate-1", "taskId": "task-1", "status": "loading", "prompt": "cat", "createdAt": "now"}],
+        })
+        self.task_service.tasks["task-1"] = {
+            "id": "task-1",
+            "status": "success",
+            "data": [{"url": "/images/2026/01/01/cat.png", "revised_prompt": "cat"}],
+        }
+
+        self.service.run_once()
+
+        candidate = self.get_selection()["candidates"][0]
+        self.assertEqual(candidate["status"], "ready")
+        self.assertEqual(candidate["prompt"], "cat")
 
     def test_worker_does_not_overwrite_user_decisions_from_stale_snapshot(self):
         stale = self.save_selection({

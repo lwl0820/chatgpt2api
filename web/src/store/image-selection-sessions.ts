@@ -16,6 +16,7 @@ export type ImageSelectionCandidate = {
   id: string;
   taskId?: string;
   status: ImageSelectionCandidateStatus;
+  prompt?: string;
   url?: string;
   rel?: string;
   revised_prompt?: string;
@@ -70,6 +71,7 @@ function normalizeCandidate(candidate: ImageSelectionCandidate & Record<string, 
     id: String(candidate.id || `${Date.now()}`),
     taskId: typeof candidate.taskId === "string" && candidate.taskId ? candidate.taskId : undefined,
     status,
+    prompt: typeof candidate.prompt === "string" && candidate.prompt.trim() ? candidate.prompt : undefined,
     url: typeof candidate.url === "string" && candidate.url ? candidate.url : undefined,
     rel: typeof candidate.rel === "string" && candidate.rel ? candidate.rel : undefined,
     revised_prompt: typeof candidate.revised_prompt === "string" ? candidate.revised_prompt : undefined,

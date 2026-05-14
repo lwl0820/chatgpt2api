@@ -160,14 +160,15 @@ class ImageSelectionQueueService:
     def _submit_candidate(self, identity: dict[str, object], owner_id: str, session: dict[str, Any]) -> dict[str, Any]:
         now = _now_iso()
         candidate_id = uuid4().hex
+        prompt = _clean(session.get("prompt"))
         candidates = [candidate for candidate in session.get("candidates", []) if isinstance(candidate, dict)]
-        loading_candidate = {"id": candidate_id, "taskId": candidate_id, "status": "loading", "createdAt": now}
+        loading_candidate = {"id": candidate_id, "taskId": candidate_id, "status": "loading", "prompt": prompt, "createdAt": now}
         session = self._save_candidates(owner_id, session, [*candidates, loading_candidate], now=now)
         try:
             task = image_task_service.submit_generation(
                 identity,
                 client_task_id=candidate_id,
-                prompt=_clean(session.get("prompt")),
+                prompt=prompt,
                 model="gpt-image-2",
                 size=_clean(session.get("size")) or None,
                 base_url="",

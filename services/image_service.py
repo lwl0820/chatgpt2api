@@ -104,15 +104,17 @@ def _image_prompt_map() -> dict[str, str]:
         item = record.get("item") if isinstance(record, dict) else None
         if not isinstance(item, dict):
             continue
-        prompt = str(item.get("prompt") or "").strip()
+        session_prompt = str(item.get("prompt") or "").strip()
         candidates = item.get("candidates")
-        if not prompt or not isinstance(candidates, list):
+        if not isinstance(candidates, list):
             continue
         for candidate in candidates:
             if not isinstance(candidate, dict):
                 continue
             rel = _safe_extract_image_relative_path(candidate.get("rel") or candidate.get("path") or candidate.get("url"))
-            if rel:
+            candidate_prompt = str(candidate.get("prompt") or "").strip()
+            prompt = candidate_prompt or session_prompt
+            if rel and prompt:
                 prompts[rel] = prompt
     return prompts
 
