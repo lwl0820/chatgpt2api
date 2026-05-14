@@ -667,11 +667,12 @@ function ImageSelectContent() {
     const extension = currentCandidate.url.startsWith("data:") ? "png" : getExtensionFromUrl(currentCandidate.url);
     try {
       await downloadImageUrl(currentCandidate.url, `${baseName}-${currentCandidate.id}.${extension}`);
-      toast.success("已开始下载当前图片");
+      await decideCurrent("kept");
+      toast.success("已开始下载当前图片，并标记为保留");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "下载当前图片失败");
     }
-  }, [currentCandidate, selectedSession]);
+  }, [currentCandidate, decideCurrent, selectedSession]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
