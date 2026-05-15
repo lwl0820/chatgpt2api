@@ -344,7 +344,6 @@ function ImageSelectContent() {
   const [sessions, setSessions] = useState<ImageSelectionSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [currentCandidateId, setCurrentCandidateId] = useState<string | null>(null);
-  const [hiddenCandidateId, setHiddenCandidateId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [imageSize, setImageSize] = useState("");
   const [queueLimit, setQueueLimit] = useState(DEFAULT_QUEUE_LIMIT);
@@ -365,15 +364,14 @@ function ImageSelectContent() {
   );
   const stats = selectedSession ? getImageSelectionSessionStats(selectedSession) : null;
   const readyCandidates = useMemo(
-    () => selectedSession?.candidates.filter((candidate) => candidate.status === "ready" && candidate.url && candidate.id !== hiddenCandidateId) ?? [],
-    [hiddenCandidateId, selectedSession],
+    () => selectedSession?.candidates.filter((candidate) => candidate.status === "ready" && candidate.url) ?? [],
+    [selectedSession],
   );
   const currentCandidate =
     selectedSession?.candidates.find((candidate) =>
       candidate.id === currentCandidateId
       && candidate.status === "ready"
       && candidate.url
-      && candidate.id !== hiddenCandidateId
     ) ?? null;
   const hasLoading = Boolean(selectedSession?.candidates.some((candidate) => candidate.status === "loading"));
   const reviewCandidates = selectedSession?.candidates.filter((candidate) => candidate.status === "ready" || candidate.status === "loading") ?? [];
@@ -381,7 +379,6 @@ function ImageSelectContent() {
   useEffect(() => {
     if (!selectedSession) {
       setCurrentCandidateId(null);
-      setHiddenCandidateId(null);
       return;
     }
     if (currentCandidateId && selectedSession.candidates.some((candidate) => candidate.id === currentCandidateId)) {
@@ -389,16 +386,6 @@ function ImageSelectContent() {
     }
     setCurrentCandidateId(readyCandidates[0]?.id ?? null);
   }, [currentCandidateId, readyCandidates, selectedSession]);
-
-  useEffect(() => {
-    if (!hiddenCandidateId || !selectedSession) {
-      return;
-    }
-    const hiddenCandidate = selectedSession.candidates.find((candidate) => candidate.id === hiddenCandidateId);
-    if (!hiddenCandidate || hiddenCandidate.status !== "ready") {
-      setHiddenCandidateId(null);
-    }
-  }, [hiddenCandidateId, selectedSession]);
 
   useEffect(() => {
     originalPreloadRef.current.clear();
@@ -470,7 +457,6 @@ function ImageSelectContent() {
     if (selectedSessionId === id) {
       setSelectedSessionId(nextSessions[0]?.id ?? null);
       setCurrentCandidateId(null);
-      setHiddenCandidateId(null);
       setLoadedOriginalKey(null);
       setIsImmersive(false);
     }
@@ -555,7 +541,6 @@ function ImageSelectContent() {
       consecutiveFailures: 0,
     };
     setCurrentCandidateId(null);
-    setHiddenCandidateId(null);
     setLoadedOriginalKey(null);
     setPrompt("");
     await persistSession(session);
@@ -634,7 +619,6 @@ function ImageSelectContent() {
   const selectSession = useCallback((id: string) => {
     setSelectedSessionId(id);
     setCurrentCandidateId(null);
-    setHiddenCandidateId(null);
     setLoadedOriginalKey(null);
     setIsImmersive(false);
   }, []);
@@ -648,7 +632,7 @@ function ImageSelectContent() {
       ...readyCandidates.slice(currentIndex >= 0 ? currentIndex + 1 : 0),
       ...readyCandidates.slice(0, currentIndex >= 0 ? currentIndex : 0),
     ].find((candidate) => candidate.id !== currentCandidate.id) ?? null;
-    setHiddenCandidateId(currentCandidate.id);
+    setCurrentCandidateId(nextCandidate?.id ?? null);
     const now = new Date().toISOString();
     await updateSession(selectedSession.id, (session) => {
       let changed = false;
@@ -671,7 +655,6 @@ function ImageSelectContent() {
         ].slice(-MAX_DECISION_HISTORY),
       };
     });
-    setCurrentCandidateId(nextCandidate?.id ?? null);
   }, [currentCandidate, readyCandidates, selectedSession, updateSession]);
 
   const undoLastDecision = useCallback(async () => {
@@ -711,7 +694,6 @@ function ImageSelectContent() {
       };
     });
     if (restoredCandidateId) {
-      setHiddenCandidateId(null);
       setCurrentCandidateId(restoredCandidateId);
       toast.success("已撤销上一次选图操作");
     } else {
