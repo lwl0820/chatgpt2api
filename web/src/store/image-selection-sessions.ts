@@ -8,14 +8,17 @@ import {
   streamBackendSession,
   type BackendSessionKind,
 } from "@/lib/api";
+import { getImageThumbnailUrl } from "@/lib/image-thumbnail-url";
 
 export type ImageSelectionCandidateStatus = "loading" | "ready" | "kept" | "discarded" | "error";
 export type ImageSelectionSessionStatus = "running" | "paused" | "idle";
+export type ImageSelectionCandidateThumbnailStatus = "unknown" | "available" | "missing";
 
 export type ImageSelectionCandidate = {
   id: string;
   taskId?: string;
   status: ImageSelectionCandidateStatus;
+  thumbnailStatus?: ImageSelectionCandidateThumbnailStatus;
   prompt?: string;
   url?: string;
   rel?: string;
@@ -79,10 +82,16 @@ function normalizeCandidate(candidate: ImageSelectionCandidate & Record<string, 
     : candidate.url
       ? "ready"
       : "loading";
+  const thumbnailStatus = ["unknown", "available", "missing"].includes(String(candidate.thumbnailStatus))
+    ? candidate.thumbnailStatus as ImageSelectionCandidateThumbnailStatus
+    : candidate.url
+      ? "unknown"
+      : undefined;
   return {
     id: String(candidate.id || `${Date.now()}`),
     taskId: typeof candidate.taskId === "string" && candidate.taskId ? candidate.taskId : undefined,
     status,
+    thumbnailStatus,
     prompt: typeof candidate.prompt === "string" && candidate.prompt.trim() ? candidate.prompt : undefined,
     url: typeof candidate.url === "string" && candidate.url ? candidate.url : undefined,
     rel: typeof candidate.rel === "string" && candidate.rel ? candidate.rel : undefined,
@@ -144,6 +153,29 @@ export function normalizeImageSelectionSession(session: ImageSelectionSession & 
 export function buildImageSelectionTitle(prompt: string) {
   const trimmed = prompt.trim();
   return trimmed.length <= 12 ? trimmed : `${trimmed.slice(0, 12)}...`;
+}
+
+export function getImageSelectionCandidateThumbnailUrl(candidate: ImageSelectionCandidate) {
+  if (!candidate.url) {
+    return "";
+  }
+  return candidate.thumbnailStatus === "missing" ? candidate.url : getImageThumbnailUrl(candidate.url);
+}
+
+export function setImageSelectionCandidateThumbnailStatus(
+  session: ImageSelectionSession,
+  candidateId: string,
+  thumbnailStatus: ImageSelectionCandidateThumbnailStatus,
+): ImageSelectionSession {
+  let changed = false;
+  const candidates = session.candidates.map((candidate) => {
+    if (candidate.id !== candidateId || candidate.thumbnailStatus === thumbnailStatus) {
+      return candidate;
+    }
+    changed = true;
+    return { ...candidate, thumbnailStatus };
+  });
+  return changed ? { ...session, candidates } : session;
 }
 
 export function getImageSelectionSessionStats(session: ImageSelectionSession): ImageSelectionSessionStats {

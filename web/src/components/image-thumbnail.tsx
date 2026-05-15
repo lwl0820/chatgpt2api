@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { getImageThumbnailUrl } from "@/lib/image-thumbnail-url";
 import { cn } from "@/lib/utils";
+
+export { getImageThumbnailUrl };
 
 type ImageThumbnailProps = {
   src: string;
@@ -10,16 +13,11 @@ type ImageThumbnailProps = {
   alt?: string;
   className?: string;
   imageClassName?: string;
+  onThumbnailLoad?: () => void;
+  onThumbnailError?: () => void;
 };
 
-export function getImageThumbnailUrl(src: string) {
-  const marker = "/images/";
-  const index = src.indexOf(marker);
-  if (index < 0) return src;
-  return `${src.slice(0, index)}/image-thumbnails/${src.slice(index + marker.length)}`;
-}
-
-export function ImageThumbnail({ src, thumbnailSrc, alt = "", className, imageClassName }: ImageThumbnailProps) {
+export function ImageThumbnail({ src, thumbnailSrc, alt = "", className, imageClassName, onThumbnailLoad, onThumbnailError }: ImageThumbnailProps) {
   const initialSrc = useMemo(() => thumbnailSrc || getImageThumbnailUrl(src), [src, thumbnailSrc]);
   const [currentSrc, setCurrentSrc] = useState(initialSrc);
 
@@ -35,8 +33,14 @@ export function ImageThumbnail({ src, thumbnailSrc, alt = "", className, imageCl
         className={cn("h-full w-full object-cover", imageClassName)}
         loading="lazy"
         decoding="async"
+        onLoad={() => {
+          if (currentSrc !== src) {
+            onThumbnailLoad?.();
+          }
+        }}
         onError={() => {
           if (currentSrc !== src) {
+            onThumbnailError?.();
             setCurrentSrc(src);
           }
         }}

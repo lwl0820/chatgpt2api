@@ -5,7 +5,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, Check, Download, ImageIcon, LoaderCircle
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { getImageThumbnailUrl, ImageThumbnail } from "@/components/image-thumbnail";
+import { ImageThumbnail } from "@/components/image-thumbnail";
 import {
   Dialog,
   DialogContent,
@@ -24,9 +24,12 @@ import {
   applyImageSelectionSessionDelta,
   deleteImageSelectionSession,
   getImageSelectionSessionStats,
+  getImageSelectionCandidateThumbnailUrl,
   listImageSelectionSessions,
   saveImageSelectionSession,
+  setImageSelectionCandidateThumbnailStatus,
   streamImageSelectionSession,
+  type ImageSelectionCandidateThumbnailStatus,
   type ImageSelectionCandidate,
   type ImageSelectionSessionDelta,
   type ImageSelectionSession,
@@ -99,10 +102,12 @@ type CandidateStripProps = {
   currentCandidateId?: string;
   size: string;
   onSelectCandidate: (candidateId: string) => void;
+  onThumbnailLoad: (candidateId: string) => void;
+  onThumbnailError: (candidateId: string) => void;
   dark?: boolean;
 };
 
-function CandidateStrip({ candidates, currentCandidateId, size, onSelectCandidate, dark = false }: CandidateStripProps) {
+function CandidateStrip({ candidates, currentCandidateId, size, onSelectCandidate, onThumbnailLoad, onThumbnailError, dark = false }: CandidateStripProps) {
   return (
     <div className="hide-scrollbar flex w-full min-w-0 gap-2 overflow-x-auto overscroll-x-contain pb-1">
       {candidates.map((candidate) => (
@@ -126,7 +131,14 @@ function CandidateStrip({ candidates, currentCandidateId, size, onSelectCandidat
             }}
           >
             {candidate.url ? (
-              <ImageThumbnail src={candidate.url} alt="候选缩略图" className="h-full w-full" />
+              <ImageThumbnail
+                src={candidate.url}
+                thumbnailSrc={getImageSelectionCandidateThumbnailUrl(candidate)}
+                alt="候选缩略图"
+                className="h-full w-full"
+                onThumbnailLoad={() => onThumbnailLoad(candidate.id)}
+                onThumbnailError={() => onThumbnailError(candidate.id)}
+              />
             ) : (
               <div className="flex h-full w-full items-center justify-center">
                 <LoaderCircle className="size-4 animate-spin text-stone-400" />
@@ -149,6 +161,8 @@ type ReviewStageProps = {
   immersive?: boolean;
   loadedOriginalKey: string | null;
   onOriginalImageLoad: (imageKey: string) => void;
+  onThumbnailLoad: (candidateId: string) => void;
+  onThumbnailError: (candidateId: string) => void;
   onKeep: () => void;
   onDiscard: () => void;
   onUndo: () => void;
@@ -169,6 +183,8 @@ function ReviewStage({
   immersive = false,
   loadedOriginalKey,
   onOriginalImageLoad,
+  onThumbnailLoad,
+  onThumbnailError,
   onKeep,
   onDiscard,
   onUndo,
@@ -179,22 +195,31 @@ function ReviewStage({
   immersiveActions,
 }: ReviewStageProps) {
   const currentImageKey = currentCandidate?.url ? `${currentCandidate.id}:${currentCandidate.url}` : null;
-  const currentThumbnailUrl = currentCandidate?.url ? getImageThumbnailUrl(currentCandidate.url) : "";
+  const currentThumbnailUrl = currentCandidate ? getImageSelectionCandidateThumbnailUrl(currentCandidate) : "";
+  const showThumbnail = Boolean(currentCandidate?.url && currentCandidate.thumbnailStatus !== "missing");
   const isOriginalLoaded = Boolean(currentImageKey && loadedOriginalKey === currentImageKey);
 
   const currentImage = currentCandidate?.url ? (
     <div className="relative flex h-full w-full items-center justify-center">
-      <img
-        key={`${currentImageKey}:thumb`}
-        src={currentThumbnailUrl}
-        alt="当前候选图缩略图"
-        className={cn("h-full w-full object-contain blur-sm transition-opacity", isOriginalLoaded ? "opacity-0" : "opacity-100")}
-      />
+      {showThumbnail ? (
+        <img
+          key={`${currentImageKey}:thumb`}
+          src={currentThumbnailUrl}
+          alt="当前候选图缩略图"
+          className={cn("h-full w-full object-contain blur-sm transition-opacity", isOriginalLoaded ? "opacity-0" : "opacity-100")}
+          onLoad={() => currentCandidate ? onThumbnailLoad(currentCandidate.id) : undefined}
+          onError={() => currentCandidate ? onThumbnailError(currentCandidate.id) : undefined}
+        />
+      ) : null}
       <img
         key={`${currentImageKey}:original`}
         src={currentCandidate.url}
         alt="当前候选图"
-        className={cn("absolute inset-0 h-full w-full object-contain transition-opacity", isOriginalLoaded ? "opacity-100" : "opacity-0")}
+        className={cn(
+          "h-full w-full object-contain transition-opacity",
+          showThumbnail ? "absolute inset-0" : "",
+          showThumbnail ? (isOriginalLoaded ? "opacity-100" : "opacity-0") : "opacity-100",
+        )}
         onLoad={() => currentImageKey ? onOriginalImageLoad(currentImageKey) : undefined}
       />
     </div>
@@ -244,7 +269,15 @@ function ReviewStage({
           </div>
         </div>
         <div className="shrink-0 border-t border-white/10 px-4 py-3">
-          <CandidateStrip candidates={reviewCandidates} currentCandidateId={currentCandidate?.id} size={session.size} onSelectCandidate={onSelectCandidate} dark />
+          <CandidateStrip
+            candidates={reviewCandidates}
+            currentCandidateId={currentCandidate?.id}
+            size={session.size}
+            onSelectCandidate={onSelectCandidate}
+            onThumbnailLoad={onThumbnailLoad}
+            onThumbnailError={onThumbnailError}
+            dark
+          />
         </div>
       </div>
     );
@@ -290,7 +323,14 @@ function ReviewStage({
             <div className="flex items-center gap-1"><X className="size-3 text-rose-500" /> 丢弃不删除图片文件</div>
           </div>
         </div>
-        <CandidateStrip candidates={reviewCandidates} currentCandidateId={currentCandidate?.id} size={session.size} onSelectCandidate={onSelectCandidate} />
+        <CandidateStrip
+          candidates={reviewCandidates}
+          currentCandidateId={currentCandidate?.id}
+          size={session.size}
+          onSelectCandidate={onSelectCandidate}
+          onThumbnailLoad={onThumbnailLoad}
+          onThumbnailError={onThumbnailError}
+        />
       </div>
     </div>
   );
@@ -453,6 +493,20 @@ function ImageSelectContent() {
     await persistSession(nextSession, options);
     return nextSession;
   }, [persistSession]);
+
+  const updateCandidateThumbnailStatus = useCallback(async (
+    candidateId: string,
+    thumbnailStatus: ImageSelectionCandidateThumbnailStatus,
+  ) => {
+    if (!selectedSession) {
+      return;
+    }
+    await updateSession(
+      selectedSession.id,
+      (session) => setImageSelectionCandidateThumbnailStatus(session, candidateId, thumbnailStatus),
+      { touchUpdatedAt: false },
+    );
+  }, [selectedSession, updateSession]);
 
   useEffect(() => {
     let cancelled = false;
@@ -973,11 +1027,13 @@ function ImageSelectContent() {
               currentCandidate={currentCandidate}
               reviewCandidates={reviewCandidates}
               hasLoading={hasLoading}
-              isSubmitting={selectedSession.status === "running"}
-              loadedOriginalKey={loadedOriginalKey}
-              onOriginalImageLoad={setLoadedOriginalKey}
-              onKeep={() => void decideCurrent("kept")}
-              onDiscard={() => void decideCurrent("discarded")}
+            isSubmitting={selectedSession.status === "running"}
+            loadedOriginalKey={loadedOriginalKey}
+            onOriginalImageLoad={setLoadedOriginalKey}
+            onThumbnailLoad={(candidateId) => void updateCandidateThumbnailStatus(candidateId, "available")}
+            onThumbnailError={(candidateId) => void updateCandidateThumbnailStatus(candidateId, "missing")}
+            onKeep={() => void decideCurrent("kept")}
+            onDiscard={() => void decideCurrent("discarded")}
               onUndo={() => void undoLastDecision()}
               onDownload={() => void downloadCurrentCandidate()}
               onSelectCandidate={setCurrentCandidateId}
@@ -999,6 +1055,8 @@ function ImageSelectContent() {
             immersive
             loadedOriginalKey={loadedOriginalKey}
             onOriginalImageLoad={setLoadedOriginalKey}
+            onThumbnailLoad={(candidateId) => void updateCandidateThumbnailStatus(candidateId, "available")}
+            onThumbnailError={(candidateId) => void updateCandidateThumbnailStatus(candidateId, "missing")}
             onKeep={() => void decideCurrent("kept")}
             onDiscard={() => void decideCurrent("discarded")}
             onUndo={() => void undoLastDecision()}
