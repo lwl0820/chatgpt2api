@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import {
   applyImageSelectionSessionDelta,
   deleteImageSelectionSession,
+  emptyImageSelectionStats,
   getImageSelectionSessionStats,
   getImageSelectionCandidateThumbnailUrl,
   listImageSelectionSessions,
@@ -539,6 +540,7 @@ function ImageSelectContent() {
       createdAt: now,
       updatedAt: now,
       consecutiveFailures: 0,
+      stats: emptyImageSelectionStats(),
     };
     setCurrentCandidateId(null);
     setLoadedOriginalKey(null);
@@ -573,7 +575,7 @@ function ImageSelectContent() {
     }
     await updateSession(
       selectedSession.id,
-      (session) => ({ ...session, statsResetAt: new Date().toISOString() }),
+      (session) => ({ ...session, stats: emptyImageSelectionStats() }),
       { touchUpdatedAt: false },
     );
     toast.success("统计已重置");
@@ -649,6 +651,10 @@ function ImageSelectContent() {
       return {
         ...session,
         candidates,
+        stats: {
+          ...session.stats,
+          [status]: session.stats[status] + 1,
+        },
         decisionHistory: [
           ...session.decisionHistory,
           { candidateId: currentCandidate.id, previousStatus: "ready" as const, nextStatus: status, decidedAt: now },
@@ -666,6 +672,7 @@ function ImageSelectContent() {
       return;
     }
     let restoredCandidateId: string | null = null;
+    let restoredStatus: "kept" | "discarded" | null = null;
     await updateSession(selectedSession.id, (session) => {
       const history = [...session.decisionHistory];
       let candidates = session.candidates;
@@ -679,6 +686,7 @@ function ImageSelectContent() {
           continue;
         }
         restoredCandidateId = candidate.id;
+        restoredStatus = item.nextStatus;
         candidates = candidates.map((entry) =>
           entry.id === candidate.id ? { ...entry, status: "ready" as const, decidedAt: undefined } : entry,
         );
@@ -690,6 +698,12 @@ function ImageSelectContent() {
       return {
         ...session,
         candidates,
+        stats: restoredStatus
+          ? {
+            ...session.stats,
+            [restoredStatus]: Math.max(0, session.stats[restoredStatus] - 1),
+          }
+          : session.stats,
         decisionHistory: history,
       };
     });

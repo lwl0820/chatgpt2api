@@ -118,6 +118,7 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
         session = self.get_selection()
         self.assertEqual(session["status"], "paused")
         self.assertEqual(session["lastError"], "连续生成失败，已暂停选图")
+        self.assertEqual(session["stats"], {"kept": 0, "discarded": 0, "skipped": 1})
         self.assertEqual(session["updatedAt"], "2026-01-01T00:00:00.000")
 
     def test_syncs_loading_candidates_after_session_paused(self):
@@ -137,7 +138,25 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
         self.assertEqual(session["status"], "paused")
         self.assertEqual(session["candidates"][0]["status"], "error")
         self.assertEqual(session["candidates"][0]["error"], "boom")
+        self.assertEqual(session["stats"], {"kept": 0, "discarded": 0, "skipped": 1})
         self.assertEqual(len(self.task_service.submitted), 0)
+
+    def test_does_not_count_existing_error_candidate_again(self):
+        self.save_selection({
+            "id": "session-1",
+            "status": "paused",
+            "prompt": "cat",
+            "queueLimit": 1,
+            "failureLimit": 5,
+            "stats": {"kept": 2, "discarded": 3, "skipped": 4},
+            "candidates": [{"id": "candidate-1", "taskId": "task-1", "status": "error", "error": "boom", "createdAt": "now"}],
+        })
+
+        updated = self.service._save_candidates("alice", self.get_selection(), [
+            {"id": "candidate-1", "taskId": "task-1", "status": "error", "error": "boom", "createdAt": "now"},
+        ])
+
+        self.assertEqual(updated["stats"], {"kept": 2, "discarded": 3, "skipped": 4})
 
     def test_uses_updated_session_prompt_for_new_candidates(self):
         self.save_selection({
@@ -210,6 +229,7 @@ class ImageSelectionQueueServiceTests(unittest.TestCase):
 
         self.assertEqual(updated["candidates"][0]["status"], "discarded")
         self.assertEqual(updated["candidates"][1]["status"], "error")
+        self.assertEqual(updated["stats"], {"kept": 0, "discarded": 0, "skipped": 1})
 
 
 if __name__ == "__main__":

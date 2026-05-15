@@ -23,19 +23,20 @@ function buildSession(overrides: Partial<ImageSelectionSession> = {}): ImageSele
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     consecutiveFailures: 0,
+    stats: { kept: 0, discarded: 0, skipped: 0 },
     ...overrides,
   };
 }
 
-test("keeps stats reset metadata when normalizing sessions", () => {
-  const session = normalizeImageSelectionSession(buildSession({ statsResetAt: "2026-01-01T00:10:00.000Z" }));
+test("normalizes persisted selection stats", () => {
+  const session = normalizeImageSelectionSession(buildSession({ stats: { kept: 2, discarded: 3, skipped: 4 } }));
 
-  assert.equal(session.statsResetAt, "2026-01-01T00:10:00.000Z");
+  assert.deepEqual(session.stats, { kept: 2, discarded: 3, skipped: 4 });
 });
 
-test("resets kept discarded and skipped stats without changing active queue stats", () => {
+test("uses persisted kept discarded and skipped stats without deriving from candidates", () => {
   const session = buildSession({
-    statsResetAt: "2026-01-01T00:10:00.000Z",
+    stats: { kept: 0, discarded: 0, skipped: 0 },
     candidates: [
       { id: "kept-before", status: "kept", createdAt: "2026-01-01T00:00:00.000Z", decidedAt: "2026-01-01T00:05:00.000Z" },
       { id: "discarded-before", status: "discarded", createdAt: "2026-01-01T00:00:00.000Z", decidedAt: "2026-01-01T00:06:00.000Z" },
@@ -55,14 +56,12 @@ test("resets kept discarded and skipped stats without changing active queue stat
   });
 });
 
-test("counts new kept discarded and skipped activity after reset", () => {
+test("returns persisted activity stats and live active queue stats", () => {
   const session = buildSession({
-    statsResetAt: "2026-01-01T00:10:00.000Z",
+    stats: { kept: 1, discarded: 1, skipped: 1 },
     candidates: [
-      { id: "kept-before", status: "kept", createdAt: "2026-01-01T00:00:00.000Z", decidedAt: "2026-01-01T00:05:00.000Z" },
-      { id: "kept-after", status: "kept", createdAt: "2026-01-01T00:11:00.000Z", decidedAt: "2026-01-01T00:12:00.000Z" },
-      { id: "discarded-after", status: "discarded", createdAt: "2026-01-01T00:11:00.000Z", decidedAt: "2026-01-01T00:13:00.000Z" },
-      { id: "error-after", status: "error", createdAt: "2026-01-01T00:09:00.000Z", errorAt: "2026-01-01T00:14:00.000Z" },
+      { id: "loading", status: "loading", createdAt: "2026-01-01T00:11:00.000Z" },
+      { id: "ready", status: "ready", createdAt: "2026-01-01T00:12:00.000Z" },
     ],
   });
 
@@ -71,11 +70,12 @@ test("counts new kept discarded and skipped activity after reset", () => {
   assert.equal(stats.kept, 1);
   assert.equal(stats.discarded, 1);
   assert.equal(stats.error, 1);
+  assert.equal(stats.active, 2);
 });
 
-test("stats reset metadata does not mutate session state used for ordering or selection", () => {
+test("selection stats do not mutate session state used for ordering or selection", () => {
   const before = buildSession({
-    statsResetAt: "2026-01-01T00:10:00.000Z",
+    stats: { kept: 0, discarded: 0, skipped: 0 },
     candidates: [
       { id: "kept-before", status: "kept", rel: "a.png", createdAt: "2026-01-01T00:00:00.000Z", decidedAt: "2026-01-01T00:05:00.000Z" },
       { id: "ready", status: "ready", url: "/images/b.png", createdAt: "2026-01-01T00:11:00.000Z" },

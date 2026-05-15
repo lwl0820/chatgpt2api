@@ -83,6 +83,28 @@ def _active_count(candidates: list[dict[str, Any]]) -> int:
     return sum(1 for candidate in candidates if candidate.get("status") in {"loading", "ready"})
 
 
+def _normalize_stats(value: object) -> dict[str, int]:
+    source = value if isinstance(value, dict) else {}
+    return {
+        "kept": max(0, _int(source.get("kept"), 0, 0)),
+        "discarded": max(0, _int(source.get("discarded"), 0, 0)),
+        "skipped": max(0, _int(source.get("skipped"), 0, 0)),
+    }
+
+
+def _count_new_errors(previous: list[dict[str, Any]], current: list[dict[str, Any]]) -> int:
+    previous_by_id = {_clean(candidate.get("id")): candidate for candidate in previous if _clean(candidate.get("id"))}
+    count = 0
+    for candidate in current:
+        candidate_id = _clean(candidate.get("id"))
+        if candidate.get("status") != "error":
+            continue
+        previous_candidate = previous_by_id.get(candidate_id)
+        if not previous_candidate or previous_candidate.get("status") != "error":
+            count += 1
+    return count
+
+
 class ImageSelectionQueueService:
     def __init__(self, *, interval_seconds: float = 2.0):
         self.interval_seconds = interval_seconds
@@ -198,14 +220,18 @@ class ImageSelectionQueueService:
         last_error: str | None = None,
     ) -> dict[str, Any]:
         latest = session_service.get_session({"id": owner_id}, SESSION_KIND_IMAGE_SELECTION, _clean(session.get("id"))) or session
+        latest_candidates = [candidate for candidate in latest.get("candidates", []) if isinstance(candidate, dict)]
         candidates = self._merge_candidates(latest, candidates)
         failures = _count_trailing_errors(candidates)
         failure_limit = _int(latest.get("failureLimit"), 5)
         should_pause = failures >= failure_limit
+        stats = _normalize_stats(latest.get("stats"))
+        stats["skipped"] += _count_new_errors(latest_candidates, candidates)
         next_session = {
             **latest,
             "candidates": candidates,
             "consecutiveFailures": failures,
+            "stats": stats,
             "status": "paused" if should_pause else latest.get("status", "running"),
         }
         if should_pause:

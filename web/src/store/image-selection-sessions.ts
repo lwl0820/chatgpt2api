@@ -36,6 +36,12 @@ export type ImageSelectionDecisionHistoryItem = {
   decidedAt: string;
 };
 
+export type ImageSelectionSessionCounters = {
+  kept: number;
+  discarded: number;
+  skipped: number;
+};
+
 export type ImageSelectionSession = {
   id: string;
   title: string;
@@ -49,7 +55,7 @@ export type ImageSelectionSession = {
   createdAt: string;
   updatedAt: string;
   consecutiveFailures: number;
-  statsResetAt?: string;
+  stats: ImageSelectionSessionCounters;
   lastError?: string;
 };
 
@@ -75,6 +81,16 @@ export type ImageSelectionSessionStats = {
 };
 
 const IMAGE_SELECTION_SESSION_KIND: BackendSessionKind = "image-selection-session";
+
+const EMPTY_IMAGE_SELECTION_STATS: ImageSelectionSessionCounters = { kept: 0, discarded: 0, skipped: 0 };
+
+function normalizeStats(stats: Partial<ImageSelectionSessionCounters> | Record<string, unknown> | undefined): ImageSelectionSessionCounters {
+  return {
+    kept: Math.max(0, Number(stats?.kept || 0)),
+    discarded: Math.max(0, Number(stats?.discarded || 0)),
+    skipped: Math.max(0, Number(stats?.skipped || 0)),
+  };
+}
 
 function normalizeCandidate(candidate: ImageSelectionCandidate & Record<string, unknown>): ImageSelectionCandidate {
   const status = ["loading", "ready", "kept", "discarded", "error"].includes(String(candidate.status))
@@ -145,7 +161,7 @@ export function normalizeImageSelectionSession(session: ImageSelectionSession & 
     createdAt: typeof session.createdAt === "string" ? session.createdAt : "",
     updatedAt: typeof session.updatedAt === "string" ? session.updatedAt : "",
     consecutiveFailures: Math.max(0, Number(session.consecutiveFailures || 0)),
-    statsResetAt: typeof session.statsResetAt === "string" && session.statsResetAt ? session.statsResetAt : undefined,
+    stats: normalizeStats(session.stats as Partial<ImageSelectionSessionCounters> | Record<string, unknown> | undefined),
     lastError: typeof session.lastError === "string" ? session.lastError : undefined,
   };
 }
@@ -179,27 +195,21 @@ export function setImageSelectionCandidateThumbnailStatus(
 }
 
 export function getImageSelectionSessionStats(session: ImageSelectionSession): ImageSelectionSessionStats {
-  const resetAt = session.statsResetAt || "";
   const stats = session.candidates.reduce(
     (acc, candidate) => {
-      if (candidate.status === "kept" || candidate.status === "discarded") {
-        if (!resetAt || (candidate.decidedAt || "").localeCompare(resetAt) > 0) {
-          acc[candidate.status] += 1;
-        }
+      if (candidate.status === "loading" || candidate.status === "ready") {
+        acc[candidate.status] += 1;
         return acc;
       }
-      if (candidate.status === "error") {
-        if (!resetAt || (candidate.errorAt || candidate.createdAt || "").localeCompare(resetAt) > 0) {
-          acc.error += 1;
-        }
-        return acc;
-      }
-      acc[candidate.status] += 1;
       return acc;
     },
-    { loading: 0, ready: 0, kept: 0, discarded: 0, error: 0 },
+    { loading: 0, ready: 0, kept: session.stats.kept, discarded: session.stats.discarded, error: session.stats.skipped },
   );
   return { ...stats, active: stats.loading + stats.ready };
+}
+
+export function emptyImageSelectionStats(): ImageSelectionSessionCounters {
+  return { ...EMPTY_IMAGE_SELECTION_STATS };
 }
 
 export function getKeptImageSelectionPaths(session: ImageSelectionSession | null): string[] {
