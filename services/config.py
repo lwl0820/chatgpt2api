@@ -274,15 +274,21 @@ class ConfigStore:
     def cleanup_old_images(self) -> int:
         cutoff = time.time() - self.image_retention_days * 86400
         root = self.images_dir
+        from services.image_metadata_service import get_image_created_timestamp, remove_image_metadata
+
         protected_paths = self._kept_image_selection_paths(root) if self.image_cleanup_skip_kept else set()
         removed = 0
         for path in root.rglob("*"):
-            if path.is_file() and path.stat().st_mtime < cutoff:
-                rel = path.relative_to(root).as_posix()
-                if rel in protected_paths:
-                    continue
-                path.unlink()
-                removed += 1
+            if not path.is_file():
+                continue
+            rel = path.relative_to(root).as_posix()
+            if get_image_created_timestamp(rel) >= cutoff:
+                continue
+            if rel in protected_paths:
+                continue
+            path.unlink()
+            remove_image_metadata(rel)
+            removed += 1
         for path in sorted((p for p in root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
             try:
                 path.rmdir()

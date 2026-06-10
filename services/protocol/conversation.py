@@ -13,6 +13,7 @@ import tiktoken
 
 from services.account_service import account_service
 from services.config import config
+from services.image_metadata_service import save_image_metadata
 from services.openai_backend_api import OpenAIBackendAPI
 from utils.helper import IMAGE_MODELS, extract_image_from_message_content
 from utils.log import logger
@@ -70,9 +71,11 @@ def save_image_bytes(image_data: bytes, base_url: str | None = None) -> str:
     file_hash = hashlib.md5(image_data).hexdigest()
     filename = f"{int(time.time())}_{file_hash}.png"
     relative_dir = Path(time.strftime("%Y"), time.strftime("%m"), time.strftime("%d"))
+    relative_path = relative_dir / filename
     file_path = config.images_dir / relative_dir / filename
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_bytes(image_data)
+    save_image_metadata(relative_path.as_posix())
     return f"{(base_url or config.base_url)}/images/{relative_dir.as_posix()}/{filename}"
 
 

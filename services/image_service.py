@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageOps
 
 from services.config import config
+from services.image_metadata_service import format_created_at, get_image_created_timestamp, remove_image_metadata
 from services.image_tags_service import load_tags, remove_tags
 
 THUMBNAIL_SIZE = (320, 320)
@@ -202,8 +203,8 @@ def _image_items(start_date: str = "", end_date: str = "") -> list[dict[str, obj
         if not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
-        parts = rel.split("/")
-        day = "-".join(parts[:3]) if len(parts) >= 4 else datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+        created_timestamp = get_image_created_timestamp(rel)
+        day = datetime.fromtimestamp(created_timestamp).strftime("%Y-%m-%d")
         if start_date and day < start_date:
             continue
         if end_date and day > end_date:
@@ -215,7 +216,7 @@ def _image_items(start_date: str = "", end_date: str = "") -> list[dict[str, obj
             "name": path.name,
             "date": day,
             "size": path.stat().st_size,
-            "created_at": datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+            "created_at": format_created_at(created_timestamp),
             **({"width": dimensions[0], "height": dimensions[1]} if dimensions else {}),
         })
     items.sort(key=lambda item: str(item["created_at"]), reverse=True)
@@ -257,6 +258,7 @@ def delete_images(paths: list[str] | None = None, start_date: str = "", end_date
                 if thumbnail.is_file():
                     thumbnail.unlink()
             remove_tags(item)
+            remove_image_metadata(item)
             removed += 1
     _cleanup_empty_dirs(root)
     _cleanup_empty_dirs(config.image_thumbnails_dir)

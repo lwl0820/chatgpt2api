@@ -91,6 +91,24 @@ class ConfigLoadingTests(unittest.TestCase):
         self.assertEqual(removed, 1)
         self.assertFalse(old_image.exists())
 
+    def test_cleanup_old_images_uses_metadata_instead_of_file_mtime(self) -> None:
+        store = self._with_temp_config({"image_retention_days": 1})
+        old_by_metadata = self._write_old_image(store, "2026/01/01/metadata-old.png")
+        fresh_by_metadata = self._write_old_image(store, "2026/01/01/metadata-fresh.png")
+
+        from services.image_metadata_service import get_image_created_timestamp, save_image_metadata
+
+        save_image_metadata("2026/01/01/metadata-old.png", time.time() - 3 * 86400)
+        save_image_metadata("2026/01/01/metadata-fresh.png", time.time())
+
+        removed = store.cleanup_old_images()
+
+        self.assertEqual(removed, 1)
+        self.assertFalse(old_by_metadata.exists())
+        self.assertTrue(fresh_by_metadata.exists())
+        self.assertEqual(get_image_created_timestamp("2026/01/01/metadata-old.png"), 0.0)
+        self.assertGreater(get_image_created_timestamp("2026/01/01/metadata-fresh.png"), 0.0)
+
     def test_cleanup_old_images_preserves_kept_selection_images_when_enabled(self) -> None:
         store = self._with_temp_config({"image_retention_days": 1, "image_cleanup_skip_kept": True})
         kept_image = self._write_old_image(store, "2026/01/01/kept.png")

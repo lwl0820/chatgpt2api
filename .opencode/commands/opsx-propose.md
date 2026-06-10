@@ -4,7 +4,7 @@ description: Propose a new change - create it and generate all artifacts in one 
 
 Propose a new change - create the change and generate all artifacts in one step.
 
-I'll create a change with artifacts:
+I'll create a change with artifacts (文档要用中文写):
 - proposal.md (what & why)
 - design.md (how)
 - tasks.md (implementation steps)

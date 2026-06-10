@@ -2,8 +2,8 @@
   "auth-key": "chatgpt2api",
   "refresh_account_interval_minute": 60,
   "image_retention_days": 15,
-  "image_poll_timeout_secs": 120,
-  "auto_remove_rate_limited_accounts": false,
+  "image_poll_timeout_secs": 60,
+  "auto_remove_rate_limited_accounts": true,
   "auto_remove_invalid_accounts": true,
   "log_levels": [
     "debug",
@@ -46,5 +46,9 @@
       "images": false
     }
   },
-  "image_account_concurrency": 3
+  "image_account_concurrency": 3,
+  "image_global_concurrency": 16,
+  "image_cleanup_skip_kept": false,
+  "image_download_append_prompt": true,
+  "image_thumbnail_generation": false
 }
