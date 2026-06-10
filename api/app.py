@@ -6,13 +6,14 @@ from threading import Event
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from api import accounts, ai, image_tasks, register, sessions, system
+from api.errors import install_exception_handlers
 from api.support import resolve_web_asset, start_limited_account_watcher
 from services.backup_service import backup_service
 from services.config import config
 from services.image_selection_queue_service import image_selection_queue_service
+from services.image_service import start_image_cleanup_scheduler
 
 
 def create_app() -> FastAPI:
@@ -22,6 +23,7 @@ def create_app() -> FastAPI:
     async def lifespan(_: FastAPI):
         stop_event = Event()
         thread = start_limited_account_watcher(stop_event)
+        cleanup_thread = start_image_cleanup_scheduler(stop_event)
         backup_service.start()
         image_selection_queue_service.start()
         config.cleanup_old_images()
@@ -31,9 +33,11 @@ def create_app() -> FastAPI:
             stop_event.set()
             thread.join(timeout=1)
             image_selection_queue_service.stop()
+            cleanup_thread.join(timeout=1)
             backup_service.stop()
 
     app = FastAPI(title="chatgpt2api", version=app_version, lifespan=lifespan)
+    install_exception_handlers(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -47,8 +51,6 @@ def create_app() -> FastAPI:
     app.include_router(sessions.create_router())
     app.include_router(register.create_router())
     app.include_router(system.create_router(app_version))
-    if config.images_dir.exists():
-        app.mount("/images", StaticFiles(directory=str(config.images_dir)), name="images")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_web(full_path: str):

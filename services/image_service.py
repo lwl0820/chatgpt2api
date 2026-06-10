@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import mimetypes
+import shutil
+import threading
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +15,9 @@ from PIL import Image, ImageOps
 
 from services.config import config
 from services.image_metadata_service import format_created_at, get_image_created_timestamp, remove_image_metadata
+from services.image_storage_service import image_storage_service
 from services.image_tags_service import load_tags, remove_tags
+from utils.log import logger
 
 THUMBNAIL_SIZE = (320, 320)
 PROMPT_PAYLOAD_PREFIX = b"\n\n-- chatgpt2api prompt --\n"
@@ -120,6 +124,17 @@ def _image_prompt_map() -> dict[str, str]:
     return prompts
 
 
+def get_image_response(relative_path: str) -> FileResponse | Response:
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+    }
+    if image_storage_service.has_local(relative_path):
+        return FileResponse(_safe_image_path(relative_path), headers=headers)
+    return Response(content=image_storage_service.get_bytes(relative_path), media_type="image/png", headers=headers)
+
+
 def _thumbnail_path(relative_path: str) -> Path:
     rel = _safe_relative_path(relative_path)
     return config.image_thumbnails_dir / f"{rel}.png"
@@ -138,19 +153,23 @@ def _image_dimensions(path: Path) -> tuple[int, int] | None:
 
 
 def ensure_thumbnail(relative_path: str) -> Path:
-    source = _safe_image_path(relative_path)
     target = _thumbnail_path(relative_path)
     if not config.image_thumbnail_generation:
         if target.exists():
             return target
         raise HTTPException(status_code=404, detail="thumbnail not found")
-    source_mtime = source.stat().st_mtime
-    if target.exists() and target.stat().st_mtime >= source_mtime:
+    source_mtime = 0.0
+    source: Path | None = None
+    if image_storage_service.has_local(relative_path):
+        source = _safe_image_path(relative_path)
+        source_mtime = source.stat().st_mtime
+    if target.exists() and (not source_mtime or target.stat().st_mtime >= source_mtime):
         return target
 
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with Image.open(source) as image:
+        image_source = source if source is not None else io.BytesIO(image_storage_service.get_bytes(relative_path))
+        with Image.open(image_source) as image:
             image = ImageOps.exif_transpose(image)
             if image.mode not in {"RGB", "RGBA"}:
                 image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
@@ -164,61 +183,73 @@ def ensure_thumbnail(relative_path: str) -> Path:
 
 
 def get_thumbnail_response(relative_path: str) -> FileResponse:
-    return FileResponse(ensure_thumbnail(relative_path))
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+    }
+    return FileResponse(ensure_thumbnail(relative_path), headers=headers)
 
 
 def get_image_download_response(relative_path: str) -> FileResponse | Response:
-    path = _safe_image_path(relative_path)
-    rel = path.relative_to(config.images_dir.resolve()).as_posix()
+    rel = _safe_relative_path(relative_path)
+    cors_headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+    }
     prompt = _image_prompt_map().get(rel) if config.image_download_append_prompt else ""
+    filename = Path(rel).name
     if prompt:
-        media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
         return Response(
-            append_prompt_payload(path.read_bytes(), prompt),
+            append_prompt_payload(image_storage_service.get_bytes(rel), prompt),
             media_type=media_type,
-            headers={"Content-Disposition": f'attachment; filename="{path.name}"'},
+            headers={**cors_headers, "Content-Disposition": f'attachment; filename="{filename}"'},
         )
-    return FileResponse(path, filename=path.name)
+    if image_storage_service.has_local(rel):
+        path = _safe_image_path(rel)
+        headers = {**cors_headers, "Content-Disposition": f'attachment; filename="{path.name}"'}
+        return FileResponse(path, filename=path.name, headers=headers)
+    headers = {
+        **cors_headers,
+        "Content-Disposition": f'attachment; filename="{filename}"',
+    }
+    return Response(
+        content=image_storage_service.get_bytes(rel),
+        media_type="image/png",
+        headers=headers,
+    )
 
 
 def cleanup_image_thumbnails() -> int:
     thumbnails_root = config.image_thumbnails_dir
-    images_root = config.images_dir
     removed = 0
     for path in thumbnails_root.rglob("*"):
         if not path.is_file():
             continue
         rel = path.relative_to(thumbnails_root).as_posix()
-        if not rel.endswith(".png") or not (images_root / rel[:-4]).exists():
+        if not rel.endswith(".png") or not image_storage_service.exists(rel[:-4]):
             path.unlink()
             removed += 1
     _cleanup_empty_dirs(thumbnails_root)
     return removed
 
-
 def _image_items(start_date: str = "", end_date: str = "") -> list[dict[str, object]]:
     items = []
-    root = config.images_dir
-    for path in root.rglob("*"):
-        if not path.is_file():
+    for item in image_storage_service.list_items("", start_date="", end_date=""):
+        rel = str(item.get("path") or item.get("rel") or "")
+        if not rel:
             continue
-        rel = path.relative_to(root).as_posix()
         created_timestamp = get_image_created_timestamp(rel)
         day = datetime.fromtimestamp(created_timestamp).strftime("%Y-%m-%d")
         if start_date and day < start_date:
             continue
         if end_date and day > end_date:
             continue
-        dimensions = _image_dimensions(path)
-        items.append({
-            "rel": rel,
-            "path": rel,
-            "name": path.name,
-            "date": day,
-            "size": path.stat().st_size,
-            "created_at": format_created_at(created_timestamp),
-            **({"width": dimensions[0], "height": dimensions[1]} if dimensions else {}),
-        })
+        next_item = dict(item)
+        next_item.update({"rel": rel, "path": rel, "date": day, "created_at": format_created_at(created_timestamp)})
+        items.append(next_item)
     items.sort(key=lambda item: str(item["created_at"]), reverse=True)
     return items
 
@@ -230,7 +261,7 @@ def list_images(base_url: str, start_date: str = "", end_date: str = "") -> dict
     items = [
         {
             **item,
-            "url": f"{base_url.rstrip('/')}/images/{item['path']}",
+            "url": str(item.get("url") or f"{base_url.rstrip('/')}/images/{item['path']}"),
             "thumbnail_url": thumbnail_url(base_url, str(item["path"])),
             "tags": all_tags.get(str(item["path"]), []),
         }
@@ -244,7 +275,10 @@ def list_images(base_url: str, start_date: str = "", end_date: str = "") -> dict
 
 def delete_images(paths: list[str] | None = None, start_date: str = "", end_date: str = "", all_matching: bool = False) -> dict[str, int]:
     root = config.images_dir.resolve()
-    targets = [str(item["path"]) for item in _image_items(start_date, end_date)] if all_matching else (paths or [])
+    targets = [
+        str(item["path"])
+        for item in image_storage_service.list_items("", start_date=start_date, end_date=end_date)
+    ] if all_matching else (paths or [])
     removed = 0
     for item in targets:
         path = (root / item).resolve()
@@ -252,14 +286,13 @@ def delete_images(paths: list[str] | None = None, start_date: str = "", end_date
             path.relative_to(root)
         except ValueError:
             continue
-        if path.is_file():
-            path.unlink()
-            for thumbnail in (_thumbnail_path(item), config.image_thumbnails_dir / _safe_relative_path(item)):
-                if thumbnail.is_file():
-                    thumbnail.unlink()
-            remove_tags(item)
-            remove_image_metadata(item)
+        if image_storage_service.delete(item):
             removed += 1
+            remove_image_metadata(item)
+        for thumbnail in (_thumbnail_path(item), config.image_thumbnails_dir / _safe_relative_path(item)):
+            if thumbnail.is_file():
+                thumbnail.unlink()
+        remove_tags(item)
     _cleanup_empty_dirs(root)
     _cleanup_empty_dirs(config.image_thumbnails_dir)
     return {"removed": removed}
@@ -275,12 +308,18 @@ def download_images_zip(paths: list[str]) -> io.BytesIO:
         for item in paths:
             rel = _safe_relative_path(item)
             path = (root / rel).resolve()
+            payload: bytes | None = None
             try:
                 path.relative_to(root)
             except ValueError:
                 continue
-            if not path.is_file():
-                continue
+            if path.is_file():
+                payload = path.read_bytes()
+            else:
+                try:
+                    payload = image_storage_service.get_bytes(rel)
+                except Exception:
+                    continue
             name = path.name
             if name in used_names:
                 stem = path.stem
@@ -291,12 +330,123 @@ def download_images_zip(paths: list[str]) -> io.BytesIO:
                 name = f"{stem}_{counter}{suffix}"
             used_names.add(name)
             prompt = prompt_map.get(rel)
-            if prompt:
-                zf.writestr(name, append_prompt_payload(path.read_bytes(), prompt))
-            else:
-                zf.write(path, name)
+            zf.writestr(name, append_prompt_payload(payload, prompt) if prompt else payload)
             added += 1
     if added == 0:
         raise HTTPException(status_code=404, detail="no images found")
     buf.seek(0)
     return buf
+def storage_stats() -> dict:
+    import shutil
+    usage = shutil.disk_usage(config.images_dir)
+    total_mb = usage.total // (1024 * 1024)
+    used_mb = usage.used // (1024 * 1024)
+    free_mb = usage.free // (1024 * 1024)
+
+    image_count = 0
+    image_size = 0
+    for p in config.images_dir.rglob("*"):
+        if p.is_file():
+            image_count += 1
+            image_size += p.stat().st_size
+
+    return {
+        "disk_total_mb": total_mb,
+        "disk_used_mb": used_mb,
+        "disk_free_mb": free_mb,
+        "image_count": image_count,
+        "image_size_mb": image_size // (1024 * 1024),
+        "image_size_bytes": image_size,
+    }
+
+
+def compress_images(quality: int = 60) -> dict:
+    """重新压缩所有图片，返回节省的空间"""
+    saved = 0
+    count = 0
+    for p in sorted(config.images_dir.rglob("*.png")):
+        if not p.is_file():
+            continue
+        try:
+            orig = p.stat().st_size
+            with Image.open(p) as img:
+                img = ImageOps.exif_transpose(img)
+                img.save(str(p) + ".tmp", format="PNG", optimize=True)
+            new_size = Path(str(p) + ".tmp").stat().st_size
+            if new_size < orig:
+                Path(str(p) + ".tmp").replace(p)
+                saved += orig - new_size
+                count += 1
+            else:
+                Path(str(p) + ".tmp").unlink()
+        except Exception:
+            pass
+    return {"compressed": count, "saved_bytes": saved, "saved_mb": saved // (1024 * 1024)}
+
+
+def delete_to_target(target_free_mb: int, dry_run: bool = False) -> dict:
+    """删除最旧的图片直到剩余空间达到 target_free_mb"""
+    import shutil
+    usage = shutil.disk_usage(config.images_dir)
+    current_free = usage.free // (1024 * 1024)
+    if current_free >= target_free_mb and not dry_run:
+        return {"removed": 0, "current_free_mb": current_free, "target_free_mb": target_free_mb, "done": True}
+
+    files = sorted(
+        (p for p in config.images_dir.rglob("*.png") if p.is_file()),
+        key=lambda p: p.stat().st_mtime,
+    )
+    removed = 0
+    freed = 0
+    for p in files:
+        if current_free + freed // (1024 * 1024) >= target_free_mb:
+            break
+        size = p.stat().st_size
+        if not dry_run:
+            rel = p.relative_to(config.images_dir).as_posix()
+            for tp in (_thumbnail_path(rel), config.image_thumbnails_dir / _safe_relative_path(rel)):
+                if tp.is_file():
+                    tp.unlink()
+            remove_tags(rel)
+            p.unlink()
+        freed += size
+        removed += 1
+
+    if not dry_run:
+        _cleanup_empty_dirs(config.images_dir)
+        _cleanup_empty_dirs(config.image_thumbnails_dir)
+
+    return {
+        "removed": removed,
+        "freed_mb": freed // (1024 * 1024),
+        "target_free_mb": target_free_mb,
+        "current_free_mb": current_free + (freed // (1024 * 1024)),
+        "done": (current_free + freed // (1024 * 1024)) >= target_free_mb,
+        "dry_run": dry_run,
+    }
+
+def _auto_cleanup_worker(stop_event: threading.Event) -> None:
+    """后台线程：每30分钟检查存储，空间低于阈值自动清理最旧图片"""
+    import shutil
+    min_free_mb = getattr(config, "image_min_free_mb", None)
+    if min_free_mb is None:
+        min_free_mb = 500
+
+    while not stop_event.wait(1800):  # 每30分钟
+        try:
+            config.cleanup_old_images()
+            cleanup_image_thumbnails()
+            usage = shutil.disk_usage(config.images_dir)
+            free_mb = usage.free // (1024 * 1024)
+            if free_mb < min_free_mb:
+                logger.info({"event": "image_auto_cleanup", "free_mb": free_mb, "min_free_mb": min_free_mb})
+                result = delete_to_target(min_free_mb)
+                logger.info({"event": "image_auto_cleanup_done", **result})
+        except Exception:
+            pass
+
+
+def start_image_cleanup_scheduler(stop_event: threading.Event) -> threading.Thread:
+    t = threading.Thread(target=_auto_cleanup_worker, args=(stop_event,), daemon=True, name="image-cleanup")
+    t.start()
+    return t
