@@ -52,6 +52,30 @@ def create_router() -> APIRouter:
             raise HTTPException(status_code=404, detail={"error": "session not found"})
         return {"item": item}
 
+    @router.get("/api/sessions/{kind}/{session_id}/candidates")
+    async def list_session_candidates(
+        kind: str,
+        session_id: str,
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=50, ge=1, le=200),
+        authorization: str | None = Header(default=None),
+    ):
+        identity = require_identity(authorization)
+        try:
+            page = await run_in_threadpool(
+                session_service.list_session_candidates,
+                identity,
+                kind,
+                session_id,
+                offset=offset,
+                limit=limit,
+            )
+        except ValueError as exc:
+            _raise_bad_request(exc)
+        if page is None:
+            raise HTTPException(status_code=404, detail={"error": "session not found"})
+        return page
+
     @router.get("/api/sessions/{kind}/{session_id}/events")
     async def stream_session_events(
         kind: str,
@@ -62,7 +86,7 @@ def create_router() -> APIRouter:
         identity = require_identity(authorization)
         owner_id = str(identity.get("id") or "").strip() or "anonymous"
         try:
-            item = await run_in_threadpool(session_service.get_session, identity, kind, session_id)
+            item = await run_in_threadpool(session_service.get_session_metadata, identity, kind, session_id)
         except ValueError as exc:
             _raise_bad_request(exc)
         if item is None:

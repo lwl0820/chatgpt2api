@@ -27,9 +27,16 @@ class FrontendBackendSessionTests(unittest.TestCase):
 
         self.assertIn("export async function fetchBackendSessions", source)
         self.assertIn("export async function fetchBackendSession", source)
+        self.assertIn("export async function fetchBackendSessionCandidates", source)
         self.assertIn("export async function saveBackendSession", source)
         self.assertIn("export async function deleteBackendSession", source)
         self.assertIn("/api/sessions", source)
+
+    def test_image_selection_store_uses_candidate_pagination_api(self):
+        source = (ROOT / "web/src/store/image-selection-sessions.ts").read_text(encoding="utf-8")
+
+        self.assertIn("fetchBackendSessionCandidates", source)
+        self.assertIn("listImageSelectionSessionCandidates", source)
 
 
 if __name__ == "__main__":

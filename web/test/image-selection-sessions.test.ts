@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   getImageSelectionCandidateThumbnailUrl,
   getImageSelectionSessionStats,
+  mergeImageSelectionCandidatePage,
   normalizeImageSelectionSession,
   setImageSelectionCandidateThumbnailStatus,
   type ImageSelectionSession,
@@ -121,4 +122,21 @@ test("normalization preserves missing thumbnail state and clears stale state whe
   });
 
   assert.equal(updated.candidates[0].thumbnailStatus, "unknown");
+});
+
+test("merges paginated candidates without duplicating existing candidates", () => {
+  const session = buildSession({
+    candidates: [
+      { id: "candidate-1", status: "loading", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "candidate-2", status: "ready", url: "/images/old.png", createdAt: "2026-01-01T00:01:00.000Z" },
+    ],
+  });
+
+  const merged = mergeImageSelectionCandidatePage(session, [
+    { id: "candidate-2", status: "ready", url: "/images/new.png", createdAt: "2026-01-01T00:01:00.000Z" },
+    { id: "candidate-3", status: "ready", url: "/images/third.png", createdAt: "2026-01-01T00:02:00.000Z" },
+  ]);
+
+  assert.deepEqual(merged.candidates.map((candidate) => candidate.id), ["candidate-1", "candidate-2", "candidate-3"]);
+  assert.equal(merged.candidates[1].url, "/images/new.png");
 });

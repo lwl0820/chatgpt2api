@@ -2,6 +2,7 @@
 
 import {
   deleteBackendSession,
+  fetchBackendSessionCandidates,
   fetchBackendSession,
   fetchBackendSessions,
   saveBackendSession,
@@ -57,6 +58,7 @@ export type ImageSelectionSession = {
   consecutiveFailures: number;
   stats: ImageSelectionSessionCounters;
   lastError?: string;
+  candidateCount?: number;
 };
 
 export type ImageSelectionSessionDelta = {
@@ -78,6 +80,14 @@ export type ImageSelectionSessionStats = {
   discarded: number;
   error: number;
   active: number;
+};
+
+export type ImageSelectionCandidatePage = {
+  items: ImageSelectionCandidate[];
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
 };
 
 const IMAGE_SELECTION_SESSION_KIND: BackendSessionKind = "image-selection-session";
@@ -163,6 +173,9 @@ export function normalizeImageSelectionSession(session: ImageSelectionSession & 
     consecutiveFailures: Math.max(0, Number(session.consecutiveFailures || 0)),
     stats: normalizeStats(session.stats as Partial<ImageSelectionSessionCounters> | Record<string, unknown> | undefined),
     lastError: typeof session.lastError === "string" ? session.lastError : undefined,
+    candidateCount: Number.isFinite(Number(session.candidateCount))
+      ? Math.max(0, Number(session.candidateCount))
+      : candidates.length,
   };
 }
 
@@ -219,6 +232,29 @@ export function getKeptImageSelectionPaths(session: ImageSelectionSession | null
   return session.candidates.flatMap((candidate) =>
     candidate.status === "kept" && candidate.rel ? [candidate.rel] : [],
   );
+}
+
+export function mergeImageSelectionCandidatePage(
+  session: ImageSelectionSession,
+  candidates: Array<ImageSelectionCandidate & Record<string, unknown>>,
+): ImageSelectionSession {
+  const normalizedCandidates = candidates.map((candidate) => normalizeCandidate(candidate));
+  const nextCandidates = session.candidates.map((candidate) => {
+    const replacement = normalizedCandidates.find((item) => item.id === candidate.id);
+    return replacement || candidate;
+  });
+  const existingIds = new Set(nextCandidates.map((candidate) => candidate.id));
+  for (const candidate of normalizedCandidates) {
+    if (!existingIds.has(candidate.id)) {
+      nextCandidates.push(candidate);
+      existingIds.add(candidate.id);
+    }
+  }
+  return {
+    ...session,
+    candidates: nextCandidates,
+    candidateCount: Math.max(session.candidateCount || 0, nextCandidates.length),
+  };
 }
 
 export function extractManagedImageRel(url: string): string {
@@ -292,6 +328,24 @@ export function applyImageSelectionSessionDelta(session: ImageSelectionSession, 
 export async function listImageSelectionSessions(): Promise<ImageSelectionSession[]> {
   const data = await fetchBackendSessions<ImageSelectionSession & Record<string, unknown>>(IMAGE_SELECTION_SESSION_KIND);
   return data.items.map(normalizeImageSelectionSession);
+}
+
+export async function listImageSelectionSessionCandidates(
+  id: string,
+  options: { offset?: number; limit?: number } = {},
+): Promise<ImageSelectionCandidatePage> {
+  const data = await fetchBackendSessionCandidates<ImageSelectionCandidate & Record<string, unknown>>(
+    IMAGE_SELECTION_SESSION_KIND,
+    id,
+    options,
+  );
+  return {
+    items: data.items.map((candidate) => normalizeCandidate(candidate)),
+    total: Math.max(0, Number(data.total || 0)),
+    offset: Math.max(0, Number(data.offset || 0)),
+    limit: Math.max(1, Number(data.limit || options.limit || 50)),
+    hasMore: Boolean(data.has_more),
+  };
 }
 
 export async function getImageSelectionSession(id: string): Promise<ImageSelectionSession | null> {

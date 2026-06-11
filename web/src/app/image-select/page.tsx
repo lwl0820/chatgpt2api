@@ -26,7 +26,9 @@ import {
   emptyImageSelectionStats,
   getImageSelectionSessionStats,
   getImageSelectionCandidateThumbnailUrl,
+  listImageSelectionSessionCandidates,
   listImageSelectionSessions,
+  mergeImageSelectionCandidatePage,
   saveImageSelectionSession,
   setImageSelectionCandidateThumbnailStatus,
   streamImageSelectionSession,
@@ -41,6 +43,7 @@ const DEFAULT_FAILURE_LIMIT = 5;
 const MAX_DECISION_HISTORY = 10;
 const ORIGINAL_PRELOAD_COUNT = 3;
 const ORIGINAL_PRELOAD_CACHE_LIMIT = 12;
+const CANDIDATE_PAGE_SIZE = 50;
 const imageSizeOptions = [
   { value: "", label: "未指定" },
   { value: "1:1", label: "1:1" },
@@ -171,6 +174,10 @@ type ReviewStageProps = {
   onSelectCandidate: (candidateId: string) => void;
   canUndo: boolean;
   canDownload: boolean;
+  candidateTotal: number;
+  hasMoreCandidates: boolean;
+  isLoadingCandidates: boolean;
+  onLoadMoreCandidates: () => void;
   immersiveActions?: ReactNode;
 };
 
@@ -193,6 +200,10 @@ function ReviewStage({
   onSelectCandidate,
   canUndo,
   canDownload,
+  candidateTotal,
+  hasMoreCandidates,
+  isLoadingCandidates,
+  onLoadMoreCandidates,
   immersiveActions,
 }: ReviewStageProps) {
   const currentImageKey = currentCandidate?.url ? `${currentCandidate.id}:${currentCandidate.url}` : null;
@@ -270,6 +281,15 @@ function ReviewStage({
           </div>
         </div>
         <div className="shrink-0 border-t border-white/10 px-4 py-3">
+          <div className="mb-2 flex items-center justify-between gap-2 text-xs text-stone-300">
+            <span>已加载 {reviewCandidates.length} / {candidateTotal}</span>
+            {hasMoreCandidates || isLoadingCandidates ? (
+              <Button variant="outline" size="sm" className="h-8 rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20" disabled={isLoadingCandidates} onClick={onLoadMoreCandidates}>
+                {isLoadingCandidates ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+                加载更多
+              </Button>
+            ) : null}
+          </div>
           <CandidateStrip
             candidates={reviewCandidates}
             currentCandidateId={currentCandidate?.id}
@@ -324,6 +344,14 @@ function ReviewStage({
             <div className="flex items-center gap-1"><X className="size-3 text-rose-500" /> 丢弃不删除图片文件</div>
           </div>
         </div>
+        <div className="mb-2 flex items-center justify-between gap-2 text-xs text-stone-500">
+          <span>已加载 {reviewCandidates.length} / {candidateTotal}</span>
+          {hasMoreCandidates || isLoadingCandidates ? (
+            <button type="button" className="font-medium text-stone-700 hover:text-stone-950 disabled:text-stone-300" disabled={isLoadingCandidates} onClick={onLoadMoreCandidates}>
+              {isLoadingCandidates ? "加载中..." : "加载更多"}
+            </button>
+          ) : null}
+        </div>
         <CandidateStrip
           candidates={reviewCandidates}
           currentCandidateId={currentCandidate?.id}
@@ -341,9 +369,11 @@ function ImageSelectContent() {
   const sessionsRef = useRef<ImageSelectionSession[]>([]);
   const originalPreloadRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const savingSessionIdsRef = useRef<Set<string>>(new Set());
+  const loadingCandidateSessionIdsRef = useRef<Set<string>>(new Set());
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const [sessions, setSessions] = useState<ImageSelectionSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [candidatePageInfo, setCandidatePageInfo] = useState<Record<string, { total: number; hasMore: boolean; isLoading: boolean }>>({});
   const [currentCandidateId, setCurrentCandidateId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [imageSize, setImageSize] = useState("");
@@ -363,6 +393,7 @@ function ImageSelectContent() {
     () => sessions.find((session) => session.id === selectedSessionId) ?? null,
     [selectedSessionId, sessions],
   );
+  const selectedCandidatePageInfo = selectedSessionId ? candidatePageInfo[selectedSessionId] : undefined;
   const stats = selectedSession ? getImageSelectionSessionStats(selectedSession) : null;
   const readyCandidates = useMemo(
     () => selectedSession?.candidates.filter((candidate) => candidate.status === "ready" && candidate.url) ?? [],
@@ -424,16 +455,72 @@ function ImageSelectContent() {
 
   const reloadSessions = useCallback(async (preferredSelectedSessionId?: string | null) => {
     const storedSessions = await listImageSelectionSessions();
-    sessionsRef.current = storedSessions;
-    setSessions(storedSessions);
+    const currentById = new Map(sessionsRef.current.map((session) => [session.id, session]));
+    const mergedSessions = storedSessions.map((session) => {
+      const current = currentById.get(session.id);
+      return current?.candidates.length ? { ...session, candidates: current.candidates } : session;
+    });
+    sessionsRef.current = mergedSessions;
+    setSessions(mergedSessions);
     setSelectedSessionId((current) => {
       const targetId = preferredSelectedSessionId === undefined ? current : preferredSelectedSessionId;
-      if (targetId && storedSessions.some((session) => session.id === targetId)) {
+      if (targetId && mergedSessions.some((session) => session.id === targetId)) {
         return targetId;
       }
-      return storedSessions[0]?.id ?? null;
+      return mergedSessions[0]?.id ?? null;
     });
-    return storedSessions;
+    return mergedSessions;
+  }, []);
+
+  const loadSessionCandidates = useCallback(async (sessionId: string, options?: { reset?: boolean }) => {
+    if (!sessionId || loadingCandidateSessionIdsRef.current.has(sessionId)) {
+      return;
+    }
+    const currentSession = sessionsRef.current.find((session) => session.id === sessionId);
+    if (!currentSession) {
+      return;
+    }
+    const offset = options?.reset ? 0 : currentSession.candidates.length;
+    loadingCandidateSessionIdsRef.current.add(sessionId);
+    setCandidatePageInfo((current) => ({
+      ...current,
+      [sessionId]: {
+        total: current[sessionId]?.total ?? currentSession.candidateCount ?? currentSession.candidates.length,
+        hasMore: current[sessionId]?.hasMore ?? Boolean((currentSession.candidateCount || 0) > currentSession.candidates.length),
+        isLoading: true,
+      },
+    }));
+    try {
+      const page = await listImageSelectionSessionCandidates(sessionId, { offset, limit: CANDIDATE_PAGE_SIZE });
+      const nextSessions = sessionsRef.current.map((session) => {
+        if (session.id !== sessionId) {
+          return session;
+        }
+        const baseSession = options?.reset ? { ...session, candidates: [] } : session;
+        return {
+          ...mergeImageSelectionCandidatePage(baseSession, page.items),
+          candidateCount: page.total,
+        };
+      });
+      sessionsRef.current = nextSessions;
+      setSessions(nextSessions);
+      setCandidatePageInfo((current) => ({
+        ...current,
+        [sessionId]: { total: page.total, hasMore: page.hasMore, isLoading: false },
+      }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "加载候选图失败");
+      setCandidatePageInfo((current) => ({
+        ...current,
+        [sessionId]: {
+          total: current[sessionId]?.total ?? currentSession.candidateCount ?? currentSession.candidates.length,
+          hasMore: current[sessionId]?.hasMore ?? false,
+          isLoading: false,
+        },
+      }));
+    } finally {
+      loadingCandidateSessionIdsRef.current.delete(sessionId);
+    }
   }, []);
 
   const persistSession = useCallback(async (session: ImageSelectionSession, options?: { touchUpdatedAt?: boolean }) => {
@@ -499,13 +586,10 @@ function ImageSelectContent() {
     let cancelled = false;
     const load = async () => {
       try {
-        const storedSessions = await listImageSelectionSessions();
         if (cancelled) {
           return;
         }
-        sessionsRef.current = storedSessions;
-        setSessions(storedSessions);
-        setSelectedSessionId(storedSessions[0]?.id ?? null);
+        await reloadSessions();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "加载选图会话失败");
       } finally {
@@ -518,7 +602,14 @@ function ImageSelectContent() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadSessions]);
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      return;
+    }
+    void loadSessionCandidates(selectedSessionId, { reset: true });
+  }, [loadSessionCandidates, selectedSessionId]);
 
   const handleStart = useCallback(async () => {
     const text = prompt.trim();
@@ -788,9 +879,10 @@ function ImageSelectContent() {
       if (current && nextSession.updatedAt.localeCompare(current.updatedAt) < 0) {
         return;
       }
+      const nextWithCandidates = current?.candidates.length ? { ...nextSession, candidates: current.candidates } : nextSession;
       const nextSessions = current
-        ? sessionsRef.current.map((session) => session.id === nextSession.id ? nextSession : session)
-        : [...sessionsRef.current, nextSession];
+        ? sessionsRef.current.map((session) => session.id === nextSession.id ? nextWithCandidates : session)
+        : [...sessionsRef.current, nextWithCandidates];
       sessionsRef.current = nextSessions;
       setSessions(nextSessions);
     };
@@ -1035,6 +1127,10 @@ function ImageSelectContent() {
               onSelectCandidate={setCurrentCandidateId}
               canUndo={selectedSession.decisionHistory.length > 0}
               canDownload={Boolean(currentCandidate?.url)}
+              candidateTotal={selectedCandidatePageInfo?.total ?? selectedSession.candidateCount ?? selectedSession.candidates.length}
+              hasMoreCandidates={Boolean(selectedCandidatePageInfo?.hasMore)}
+              isLoadingCandidates={Boolean(selectedCandidatePageInfo?.isLoading)}
+              onLoadMoreCandidates={() => void loadSessionCandidates(selectedSession.id)}
             />
           </>
         )}
@@ -1060,6 +1156,10 @@ function ImageSelectContent() {
             onSelectCandidate={setCurrentCandidateId}
             canUndo={selectedSession.decisionHistory.length > 0}
             canDownload={Boolean(currentCandidate?.url)}
+            candidateTotal={selectedCandidatePageInfo?.total ?? selectedSession.candidateCount ?? selectedSession.candidates.length}
+            hasMoreCandidates={Boolean(selectedCandidatePageInfo?.hasMore)}
+            isLoadingCandidates={Boolean(selectedCandidatePageInfo?.isLoading)}
+            onLoadMoreCandidates={() => void loadSessionCandidates(selectedSession.id)}
             immersiveActions={(
               <>
                 {selectedSession.status === "running" ? (

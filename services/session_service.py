@@ -63,7 +63,7 @@ class SessionService:
         normalized_kind = self._normalize_kind(kind) if kind else None
         with self._lock:
             items = [
-                self._public_session(session)
+                self._public_session_list_item(session)
                 for session in self._sessions.values()
                 if session.get("owner_id") == owner and (normalized_kind is None or session.get("kind") == normalized_kind)
             ]
@@ -77,6 +77,47 @@ class SessionService:
         with self._lock:
             session = self._sessions.get(_session_key(owner, normalized_kind, normalized_id))
             return self._public_session(session) if session is not None else None
+
+    def get_session_metadata(self, identity: dict[str, object], kind: str, session_id: str) -> dict[str, Any] | None:
+        owner = _owner_id(identity)
+        normalized_kind = self._normalize_kind(kind)
+        normalized_id = self._normalize_id(session_id, allow_generate=False)
+        with self._lock:
+            session = self._sessions.get(_session_key(owner, normalized_kind, normalized_id))
+            return self._public_session_list_item(session) if session is not None else None
+
+    def list_session_candidates(
+        self,
+        identity: dict[str, object],
+        kind: str,
+        session_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> dict[str, Any] | None:
+        if offset < 0:
+            raise ValueError("offset must be greater than or equal to 0")
+        if limit < 1 or limit > 200:
+            raise ValueError("limit must be between 1 and 200")
+        owner = _owner_id(identity)
+        normalized_kind = self._normalize_kind(kind)
+        normalized_id = self._normalize_id(session_id, allow_generate=False)
+        with self._lock:
+            session = self._sessions.get(_session_key(owner, normalized_kind, normalized_id))
+            if session is None:
+                return None
+            payload = session.get("payload") if isinstance(session.get("payload"), dict) else {}
+            candidates = payload.get("candidates") if isinstance(payload, dict) else []
+            items = list(candidates) if isinstance(candidates, list) else []
+        total = len(items)
+        end = offset + limit
+        return {
+            "items": items[offset:end],
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": end < total,
+        }
 
     def save_session(self, identity: dict[str, object], kind: str, item: dict[str, Any]) -> dict[str, Any]:
         owner = _owner_id(identity)
@@ -211,6 +252,11 @@ class SessionService:
         created_at = _clean(item.get("createdAt")) or _clean(existing.get("created_at") if existing else "") or now
         updated_at = _clean(item.get("updatedAt")) or now
         payload = dict(item)
+        if normalized_kind == SESSION_KIND_IMAGE_SELECTION and existing and isinstance(payload.get("candidates"), list):
+            payload["candidates"] = self._merge_candidates(
+                (existing.get("payload") if isinstance(existing.get("payload"), dict) else {}).get("candidates"),
+                payload.get("candidates"),
+            )
         payload["id"] = session_id
         payload["createdAt"] = created_at
         payload["updatedAt"] = updated_at
@@ -237,12 +283,31 @@ class SessionService:
             return uuid.uuid4().hex
         raise ValueError("session id is required")
 
+    def _merge_candidates(self, existing: object, incoming: object) -> list[Any]:
+        if not isinstance(incoming, list):
+            return list(existing) if isinstance(existing, list) else []
+        if not isinstance(existing, list):
+            return list(incoming)
+        incoming_by_id = {_candidate_id(candidate): candidate for candidate in incoming if _candidate_id(candidate)}
+        merged = [incoming_by_id.get(_candidate_id(candidate), candidate) for candidate in existing]
+        existing_ids = {_candidate_id(candidate) for candidate in existing if _candidate_id(candidate)}
+        merged.extend(candidate for candidate in incoming if _candidate_id(candidate) and _candidate_id(candidate) not in existing_ids)
+        return merged
+
     def _public_session(self, session: dict[str, Any]) -> dict[str, Any]:
         payload = dict(session.get("payload") if isinstance(session.get("payload"), dict) else {})
         payload["id"] = session.get("id")
         payload["kind"] = session.get("kind")
         payload["createdAt"] = payload.get("createdAt") or session.get("created_at")
         payload["updatedAt"] = payload.get("updatedAt") or session.get("updated_at")
+        return payload
+
+    def _public_session_list_item(self, session: dict[str, Any]) -> dict[str, Any]:
+        payload = self._public_session(session)
+        if payload.get("kind") != SESSION_KIND_IMAGE_SELECTION:
+            return payload
+        candidates = payload.pop("candidates", [])
+        payload["candidateCount"] = len(candidates) if isinstance(candidates, list) else 0
         return payload
 
     def _load_locked(self) -> dict[str, dict[str, Any]]:

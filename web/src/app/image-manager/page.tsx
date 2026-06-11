@@ -16,7 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { compressAllImages, deleteImageTag, deleteManagedImages, deleteToTarget, downloadImages, downloadSingleImage, fetchImageStorage, fetchImageTags, fetchManagedImages, setImageTags, type ImageStorageStats, type ManagedImage } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import {
-  getKeptImageSelectionPaths,
+  listImageSelectionSessionCandidates,
   listImageSelectionSessions,
   type ImageSelectionSession,
 } from "@/store/image-selection-sessions";
@@ -99,14 +99,16 @@ function ImageManagerContent() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectionSessions, setSelectionSessions] = useState<ImageSelectionSession[]>([]);
   const [selectedSelectionSessionId, setSelectedSelectionSessionId] = useState("");
+  const [selectedSelectionSessionPaths, setSelectedSelectionSessionPaths] = useState<string[]>([]);
+  const [isLoadingSelectionSessionPaths, setIsLoadingSelectionSessionPaths] = useState(false);
 
   const selectedSelectionSession = useMemo(
     () => selectionSessions.find((session) => session.id === selectedSelectionSessionId) ?? null,
     [selectedSelectionSessionId, selectionSessions],
   );
   const selectionPathSet = useMemo(
-    () => new Set(getKeptImageSelectionPaths(selectedSelectionSession)),
-    [selectedSelectionSession],
+    () => new Set(selectedSelectionSessionPaths),
+    [selectedSelectionSessionPaths],
   );
   const sessionFilteredItems = selectedSelectionSession
     ? items.filter((item) => selectionPathSet.has(item.rel))
@@ -141,7 +143,13 @@ function ImageManagerContent() {
       setItems(data.items);
       setAllTags(tagsData.tags);
       setSelectionSessions(sessions);
-      setSelectedSelectionSessionId((current) => sessions.some((session) => session.id === current) ? current : "");
+      setSelectedSelectionSessionId((current) => {
+        const exists = sessions.some((session) => session.id === current);
+        if (!exists) {
+          setSelectedSelectionSessionPaths([]);
+        }
+        return exists ? current : "";
+      });
       setSelectedPaths((current) => current.filter((path) => data.items.some((item) => imageKey(item) === path)));
       setPage(1);
     } catch (error) {
@@ -250,6 +258,7 @@ function ImageManagerContent() {
     setEndDate("");
     setSelectedTags([]);
     setSelectedSelectionSessionId("");
+    setSelectedSelectionSessionPaths([]);
   };
 
   const togglePaths = (paths: string[], checked: boolean) => {
@@ -294,6 +303,47 @@ function ImageManagerContent() {
     void loadImages();
   }, [startDate, endDate]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadPaths = async () => {
+      if (!selectedSelectionSessionId) {
+        setSelectedSelectionSessionPaths([]);
+        setIsLoadingSelectionSessionPaths(false);
+        return;
+      }
+      setIsLoadingSelectionSessionPaths(true);
+      try {
+        const paths: string[] = [];
+        let offset = 0;
+        let hasMore = true;
+        while (hasMore && !cancelled) {
+          const page = await listImageSelectionSessionCandidates(selectedSelectionSessionId, { offset, limit: 200 });
+          paths.push(...page.items.flatMap((candidate) => candidate.status === "kept" && candidate.rel ? [candidate.rel] : []));
+          offset += page.items.length;
+          hasMore = page.hasMore && page.items.length > 0;
+        }
+        if (!cancelled) {
+          setSelectedSelectionSessionPaths(paths);
+          setSelectedPaths([]);
+          setPage(1);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          toast.error(error instanceof Error ? error.message : "加载选图会话图片失败");
+          setSelectedSelectionSessionPaths([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingSelectionSessionPaths(false);
+        }
+      }
+    };
+    void loadPaths();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSelectionSessionId]);
+
   return (
     <section className="space-y-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -335,7 +385,7 @@ function ImageManagerContent() {
             <option value="">全部图片</option>
             {selectionSessions.map((session) => (
               <option key={session.id} value={session.id}>
-                {session.title || session.prompt || "未命名选图"}（保留 {getKeptImageSelectionPaths(session).length}）
+                {session.title || session.prompt || "未命名选图"}（保留 {session.stats.kept}）
               </option>
             ))}
           </select>
@@ -344,6 +394,7 @@ function ImageManagerContent() {
               type="button"
               onClick={() => {
                 setSelectedSelectionSessionId("");
+                setSelectedSelectionSessionPaths([]);
                 setSelectedPaths([]);
               }}
             >
@@ -352,6 +403,12 @@ function ImageManagerContent() {
                 清除选图筛选
               </Badge>
             </button>
+          ) : null}
+          {isLoadingSelectionSessionPaths ? (
+            <span className="inline-flex items-center gap-1 text-xs text-stone-500">
+              <LoaderCircle className="size-3.5 animate-spin" />
+              正在加载会话图片
+            </span>
           ) : null}
         </div>
       ) : null}

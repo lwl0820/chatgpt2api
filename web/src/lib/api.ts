@@ -260,6 +260,14 @@ type BackendSessionItemResponse<T> = {
   item: T;
 };
 
+export type BackendSessionCandidatesResponse<T> = {
+  items: T[];
+  total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
+};
+
 type BackendSessionStreamOptions<T> = {
   signal: AbortSignal;
   onSession: (item: T) => void;
@@ -526,6 +534,19 @@ export async function fetchBackendSessions<T>(kind: BackendSessionKind) {
 
 export async function fetchBackendSession<T>(kind: BackendSessionKind, id: string) {
   return httpRequest<BackendSessionItemResponse<T>>(`/api/sessions/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`);
+}
+
+export async function fetchBackendSessionCandidates<T>(
+  kind: BackendSessionKind,
+  id: string,
+  options: { offset?: number; limit?: number } = {},
+) {
+  const params = new URLSearchParams();
+  params.set("offset", String(Math.max(0, Number(options.offset || 0))));
+  params.set("limit", String(Math.max(1, Number(options.limit || 50))));
+  return httpRequest<BackendSessionCandidatesResponse<T>>(
+    `/api/sessions/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/candidates?${params.toString()}`,
+  );
 }
 
 export async function saveBackendSession<T extends { id?: string }>(kind: BackendSessionKind, item: T) {

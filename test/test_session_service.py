@@ -91,6 +91,80 @@ class SessionServiceTests(unittest.TestCase):
 
         self.assertEqual([item["id"] for item in listed], ["newer", "older"])
 
+    def test_image_selection_list_omits_candidates_and_reports_count(self):
+        self.service.save_session(
+            self.alice,
+            SESSION_KIND_IMAGE_SELECTION,
+            {
+                "id": "session-1",
+                "title": "Selection",
+                "candidates": [
+                    {"id": "candidate-1", "status": "ready", "createdAt": "2026-01-01T00:00:00"},
+                    {"id": "candidate-2", "status": "loading", "createdAt": "2026-01-01T00:01:00"},
+                ],
+            },
+        )
+
+        listed = self.service.list_sessions(self.alice, SESSION_KIND_IMAGE_SELECTION)["items"]
+
+        self.assertEqual(listed[0]["id"], "session-1")
+        self.assertNotIn("candidates", listed[0])
+        self.assertEqual(listed[0]["candidateCount"], 2)
+
+    def test_list_session_candidates_returns_requested_page(self):
+        self.service.save_session(
+            self.alice,
+            SESSION_KIND_IMAGE_SELECTION,
+            {
+                "id": "session-1",
+                "title": "Selection",
+                "candidates": [
+                    {"id": "candidate-1", "status": "ready", "createdAt": "2026-01-01T00:00:00"},
+                    {"id": "candidate-2", "status": "ready", "createdAt": "2026-01-01T00:01:00"},
+                    {"id": "candidate-3", "status": "ready", "createdAt": "2026-01-01T00:02:00"},
+                ],
+            },
+        )
+
+        page = self.service.list_session_candidates(self.alice, SESSION_KIND_IMAGE_SELECTION, "session-1", offset=1, limit=1)
+
+        self.assertEqual([item["id"] for item in page["items"]], ["candidate-2"])
+        self.assertEqual(page["total"], 3)
+        self.assertEqual(page["offset"], 1)
+        self.assertEqual(page["limit"], 1)
+        self.assertTrue(page["has_more"])
+
+    def test_partial_image_selection_save_preserves_unloaded_candidates(self):
+        self.service.save_session(
+            self.alice,
+            SESSION_KIND_IMAGE_SELECTION,
+            {
+                "id": "session-1",
+                "title": "Selection",
+                "candidates": [
+                    {"id": "candidate-1", "status": "ready", "createdAt": "2026-01-01T00:00:00"},
+                    {"id": "candidate-2", "status": "ready", "createdAt": "2026-01-01T00:01:00"},
+                    {"id": "candidate-3", "status": "ready", "createdAt": "2026-01-01T00:02:00"},
+                ],
+            },
+        )
+
+        self.service.save_session(
+            self.alice,
+            SESSION_KIND_IMAGE_SELECTION,
+            {
+                "id": "session-1",
+                "title": "Selection",
+                "candidates": [
+                    {"id": "candidate-2", "status": "kept", "createdAt": "2026-01-01T00:01:00"},
+                ],
+            },
+        )
+
+        saved = self.service.get_session(self.alice, SESSION_KIND_IMAGE_SELECTION, "session-1")
+        self.assertEqual([candidate["id"] for candidate in saved["candidates"]], ["candidate-1", "candidate-2", "candidate-3"])
+        self.assertEqual(saved["candidates"][1]["status"], "kept")
+
     def test_existing_session_save_publishes_delta(self):
         self.service.save_session(
             self.alice,
